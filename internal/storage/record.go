@@ -1,7 +1,14 @@
 package storage
 
+type Flag uint8
+
+const (
+	FlagSet Flag = iota
+	FlagDel
+)
+
 type Record struct {
 	Key   []byte
 	Value []byte
-	Flags uint8
+	Flag  Flag
 }

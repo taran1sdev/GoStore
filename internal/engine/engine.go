@@ -3,24 +3,27 @@ package engine
 import "fmt"
 
 type Engine struct {
-	data map[string]string
+	data map[string][]byte
 }
 
 func NewEngine() *Engine {
 	return &Engine{
-		data: make(map[string]string),
+		data: make(map[string][]byte),
 	}
 }
 
-func (e *Engine) Set(key, value string) error {
+func (e *Engine) Set(key string, value []byte) {
 	e.data[key] = value
-	return nil
 }
 
-func (e *Engine) Get(key string) (string, error) {
+func (e *Engine) Get(key string) ([]byte, error) {
 	value, ok := e.data[key]
 	if !ok {
-		return "", fmt.Errorf("Key does not exist")
+		return nil, fmt.Errorf("Key does not exist")
 	}
 	return value, nil
+}
+
+func (e *Engine) Delete(key string) {
+	delete(e.data, key)
 }

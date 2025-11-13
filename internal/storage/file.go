@@ -34,7 +34,7 @@ func Open(path string) (*Storage, error) {
 		return nil, sigErr
 	}
 
-	s.File.Seek(0, io.SeekStart)
+	f.Seek(0, io.SeekStart)
 	return &Storage{
 		File: f,
 		path: path,
@@ -75,7 +75,7 @@ func checkSignature(f *os.File) (bool, error) {
 	return true, nil
 }
 
-const ERROR_CORRUPT_RECORD = fmt.Errorf("Encountered a Corrupt Record")
+var ERROR_CORRUPT_RECORD = fmt.Errorf("Encountered a Corrupt Record")
 
 const (
 	maxKeyLength uint16 = 1024
@@ -119,7 +119,7 @@ func parseRecord(f *os.File) (*Record, error) {
 		return nil, ERROR_CORRUPT_RECORD
 	}
 
-	flags := flagRaw[0]
+	flag := Flag(flagRaw[0])
 
 	// Parse the key and value
 	key := make([]byte, keyLen)
@@ -137,7 +137,7 @@ func parseRecord(f *os.File) (*Record, error) {
 	return &Record{
 		Key:   key,
 		Value: value,
-		Flags: flags,
+		Flag:  flag,
 	}, nil
 }
 
