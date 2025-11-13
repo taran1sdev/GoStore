@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -33,14 +34,10 @@ func Open(path string) (*Storage, error) {
 		return nil, sigErr
 	}
 
-	// Get file info for size
-	fi, _ := f.Stat()
-	// Seek the end of the file for appending records
-	f.Seek(0, io.SeekEnd)
+	s.File.Seek(0, io.SeekStart)
 	return &Storage{
-		File:        f,
-		writeOffset: fi.Size(),
-		path:        path,
+		File: f,
+		path: path,
 	}, nil
 }
 
@@ -76,4 +73,93 @@ func checkSignature(f *os.File) (bool, error) {
 
 	f.Seek(0, io.SeekStart)
 	return true, nil
+}
+
+const ERROR_CORRUPT_RECORD = fmt.Errorf("Encountered a Corrupt Record")
+
+const (
+	maxKeyLength uint16 = 1024
+	maxValLength uint16 = 32768
+)
+
+// This is extremely inefficient but later we will optimize file parsing
+// For now accuracy matters more
+func parseRecord(f *os.File) (*Record, error) {
+	keyLenRaw := make([]byte, 2)
+	valLenRaw := make([]byte, 2)
+
+	// Parse key / value lengths from file
+	kRead, kErr := io.ReadFull(f, keyLenRaw)
+	if errors.Is(kErr, io.EOF) && kRead == 0 {
+		return nil, io.EOF
+	} else if errors.Is(kErr, io.ErrUnexpectedEOF) {
+		return nil, ERROR_CORRUPT_RECORD
+	} else if kErr != nil {
+		return nil, fmt.Errorf("Encountered an error during record parsing: %w", kErr)
+	}
+
+	_, vErr := io.ReadFull(f, valLenRaw)
+	if vErr != nil {
+		return nil, ERROR_CORRUPT_RECORD
+	}
+
+	// Convert the values
+	keyLen := binary.LittleEndian.Uint16(keyLenRaw)
+	valLen := binary.LittleEndian.Uint16(valLenRaw)
+
+	// Make sure key and value lengths are within bounds
+	if keyLen > maxKeyLength || valLen > maxValLength {
+		return nil, ERROR_CORRUPT_RECORD
+	}
+
+	flagRaw := make([]byte, 1)
+	// Parse and convert flags
+	_, fErr := io.ReadFull(f, flagRaw)
+	if fErr != nil {
+		return nil, ERROR_CORRUPT_RECORD
+	}
+
+	flags := flagRaw[0]
+
+	// Parse the key and value
+	key := make([]byte, keyLen)
+	_, keyErr := io.ReadFull(f, key)
+	if keyErr != nil {
+		return nil, ERROR_CORRUPT_RECORD
+	}
+
+	value := make([]byte, valLen)
+	_, valErr := io.ReadFull(f, value)
+	if valErr != nil {
+		return nil, ERROR_CORRUPT_RECORD
+	}
+
+	return &Record{
+		Key:   key,
+		Value: value,
+		Flags: flags,
+	}, nil
+}
+
+func (s *Storage) Replay() ([]*Record, error) {
+	var records []*Record
+
+	// Skip the signature
+	s.File.Seek(int64(len(sig)), io.SeekStart)
+
+	for {
+		r, err := parseRecord(s.File)
+		if errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			s.File.Seek(0, io.SeekEnd)
+			return nil, err
+		}
+
+		records = append(records, r)
+	}
+
+	pos, _ := s.File.Seek(0, io.SeekCurrent)
+	s.writeOffset = pos
+	return records, nil
 }
