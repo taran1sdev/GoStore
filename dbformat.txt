@@ -1,0 +1,11 @@
+db file format:
+
+Header:
+GStore25\n
+
+Record:
+key_len uint16   
+val_len  uint16
+flags    uint8
+key_bytes []byte
+value_bytes []byte
