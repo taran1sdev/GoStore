@@ -1,5 +1,9 @@
 db file format:
 
+Initially the file will just be an append only log of operations - when loading the file we replay the operations performed to get the state of the DB
+
+Later I will implement paging and B+Tree but for now let's just build something that works
+
 Header:
 GStore25\n
 
