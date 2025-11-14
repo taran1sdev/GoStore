@@ -44,6 +44,12 @@ func (db *Database) Set(key string, value []byte) error {
 	if err := db.storage.AppendSet([]byte(key), value); err != nil {
 		return err
 	}
+
+	if db.sync {
+		if err := db.storage.SyncChanges(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -55,9 +61,16 @@ func (db *Database) Delete(key string) error {
 	if err := db.storage.AppendDelete([]byte(key)); err != nil {
 		return err
 	}
+
+	if db.sync {
+		if err := db.storage.SyncChanges(); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 func (db *Database) Get(key string) ([]byte, error) {
-	return engine.Get(key)
+	return db.engine.Get(key)
 }

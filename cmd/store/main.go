@@ -6,11 +6,52 @@ import (
 	"go.store/internal/engine"
 )
 
+type testData struct {
+	Key   string
+	value string
+}
+
 func main() {
-	_, err := engine.Open("test.db")
+	db, err := engine.Open("test.db")
 	if err != nil {
-		fmt.Printf("Oops.. %w\n", err)
+		fmt.Printf("Oops.. %s\n", err)
 	} else {
 		fmt.Println("All good.")
 	}
+
+	strings := []string{"Test", "second", "Third", "another", "fourth", "anotherone", "test"}
+
+	// Create some keys
+	for _, s := range strings {
+		cErr := db.Set(s, []byte(s))
+		if cErr != nil {
+			fmt.Printf("Oops... %s", err)
+			break
+		}
+	}
+
+	// Try some gets
+	for _, s := range strings {
+		val, gErr := db.Get(s)
+		if gErr != nil {
+			fmt.Printf("Oops.. %s", err)
+			break
+		}
+		fmt.Printf("%s: %s\n", s, string(val))
+	}
+
+	// Try some deletes
+	dErr := db.Delete("Test")
+	if dErr != nil {
+		fmt.Printf("Oops.. %s", dErr)
+	}
+
+	// Try retrieve deleted value (should error)
+	nonExist, getErr := db.Get("Test")
+	if getErr != nil {
+		fmt.Printf("Success! %s", getErr)
+	} else {
+		fmt.Println(nonExist)
+	}
+
 }

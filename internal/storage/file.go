@@ -44,13 +44,13 @@ func Open(path string) (*Storage, error) {
 func createDatabase(path string) (*os.File, error) {
 	f, err := os.Create(path)
 	if err != nil {
-		return nil, fmt.Errorf("Unable to create file %s: %w", path, err)
+		return nil, fmt.Errorf("Unable to create file %s: %s", path, err)
 	}
 
 	// Write the header to the file
 	_, wErr := f.Write(sig)
 	if wErr != nil {
-		return nil, fmt.Errorf("Failed to write header to db file %s: %w", path, wErr)
+		return nil, fmt.Errorf("Failed to write header to db file %s: %s", path, wErr)
 	}
 
 	f.Sync()
@@ -64,7 +64,7 @@ func checkSignature(f *os.File) (bool, error) {
 
 	_, err := f.Read(h)
 	if err != nil {
-		return false, fmt.Errorf("Unable to read db file %s: %w", f.Name(), err)
+		return false, fmt.Errorf("Unable to read db file %s: %s", f.Name(), err)
 	}
 
 	if !bytes.Equal(h, sig) {
@@ -99,7 +99,7 @@ func parseRecord(f *os.File) (*Record, error) {
 	} else if errors.Is(kErr, io.ErrUnexpectedEOF) {
 		return nil, ErrCorruptRecord
 	} else if kErr != nil {
-		return nil, fmt.Errorf("Encountered an error during record parsing: %w", kErr)
+		return nil, fmt.Errorf("Encountered an error during record parsing: %s", kErr)
 	}
 
 	_, vErr := io.ReadFull(f, valLenRaw)
@@ -174,9 +174,9 @@ func (s *Storage) Replay() ([]*Record, error) {
 
 func (s *Storage) AppendSet(key, value []byte) error {
 	// Check field lengths are withing parameters
-	if len(key) > maxKeyLength {
+	if uint16(len(key)) > maxKeyLength {
 		return ErrKeyTooLarge
-	} else if len(value) > maxValLength {
+	} else if uint16(len(value)) > maxValLength {
 		return ErrValTooLarge
 	}
 
@@ -189,14 +189,14 @@ func (s *Storage) AppendSet(key, value []byte) error {
 	err := s.writeRecord(r)
 
 	if err != nil {
-		return fmt.Errorf("Failed to write record: %w", err)
+		return fmt.Errorf("Failed to write record: %s", err)
 	}
 	return nil
 }
 
 func (s *Storage) AppendDelete(key []byte) error {
 	// Make sure it's a valid key
-	if len(key) > maxKeyLength {
+	if uint16(len(key)) > maxKeyLength {
 		return ErrKeyTooLarge
 	}
 
@@ -209,7 +209,7 @@ func (s *Storage) AppendDelete(key []byte) error {
 	err := s.writeRecord(r)
 
 	if err != nil {
-		return fmt.Errorf("Failed to write record: %w", err)
+		return fmt.Errorf("Failed to write record: %s", err)
 	}
 	return nil
 }
@@ -241,8 +241,8 @@ func (s *Storage) writeRecord(r *Record) error {
 	// Using a buffer we only need to write to the file once and check for errors less
 	buf := bytes.NewBuffer(make([]byte, 0, recordLen))
 
-	var keySlice = [2]byte
-	var valSlice = [2]byte
+	var keySlice = [2]byte{}
+	var valSlice = [2]byte{}
 
 	binary.LittleEndian.PutUint16(keySlice[:], keyLen)
 	write(buf.Write(keySlice[:]))
@@ -259,24 +259,31 @@ func (s *Storage) writeRecord(r *Record) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("Encountered an error writing data to buffer: %w", err)
+		return fmt.Errorf("Encountered an error writing data to buffer: %s", err)
 	}
 
 	// Make sure our pointer is at EOF
 	if _, seekErr := s.File.Seek(0, io.SeekEnd); seekErr != nil {
-		return fmt.Errorf("Failed to seek to end of file: %w", seekErr)
+		return fmt.Errorf("Failed to seek to end of file: %s", seekErr)
 	}
 
 	// Write the data in the buffer to the file
 	l, writeErr := s.File.Write(buf.Bytes())
 	if writeErr != nil {
-		err = fmt.Errorf("Encountered an error while writing to DB file: %w", writeErr)
+		err = fmt.Errorf("Encountered an error while writing to DB file: %s", writeErr)
 	} else if l != recordLen {
 		err = fmt.Errorf("Bytes written mismatch: Expected: %d Actual: %d", recordLen, l)
 	}
 
 	// Always reset the write offset even when encountering errors
-	s.writeOffset = s.File.Seek(0, io.SeekCurrent)
+	s.writeOffset, _ = s.File.Seek(0, io.SeekCurrent)
 	// err should be null if everything worked
 	return err
+}
+
+func (s *Storage) SyncChanges() error {
+	if err := s.File.Sync(); err != nil {
+		return fmt.Errorf("Failed to sync changes to DB file: %s", err)
+	}
+	return nil
 }
