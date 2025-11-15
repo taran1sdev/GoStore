@@ -32,6 +32,6 @@ func NewLeafPage(page *Page) *LeafPage {
 	copy(page.Data[startOffset:], fStart[:])
 	copy(page.Data[endOffset:], fEnd[:])
 	return &LeafPage{
-		page: page,
+		Page: page,
 	}
 }

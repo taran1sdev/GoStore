@@ -54,7 +54,7 @@ func checkSignature(f *os.File) error {
 	}
 
 	h := make([]byte, len(sig))
-	if _, err := f.Read(h); err != nil {
+	if _, err := io.ReadFull(f, h); err != nil {
 		return fmt.Errorf("Error reading magic bytes: %s", err)
 	}
 
@@ -99,13 +99,52 @@ func createDatabase(path string) (*os.File, error) {
 }
 
 func (pager *Pager) ReadPage(id uint32) (*Page, error) {
+	page := NewPage()
+	page.ID = id
 
+	offset := int64(id) * PageSize
+
+	if _, sErr := pager.file.Seek(offset, io.SeekStart); sErr != nil {
+		return nil, fmt.Errorf("Failed to seek to page with id %d: %s", id, sErr)
+	}
+
+	read, rErr := io.ReadFull(pager.file, page.Data)
+	if rErr != nil {
+		return nil, fmt.Errorf("Error occured while reading page: %s", rErr)
+	}
+
+	if read != PageSize {
+		return nil, fmt.Errorf("Data read does not match page size: Expected %d Actual: %d", PageSize, read)
+	}
+
+	page.Type = PageType(page.Data[0])
+	return page, nil
 }
 
-func (pager *Pager) WritePage(p *Page) error {
+func (pager *Pager) WritePage(page *Page) error {
+	offset := int64(page.ID) * PageSize
 
+	if _, sErr := pager.file.Seek(offset, io.SeekStart); sErr != nil {
+		return fmt.Errorf("Failed to seek to page with id %d: %s", int64(page.ID), sErr)
+	}
+
+	wrote, wErr := pager.file.Write(page.Data)
+	if wErr != nil {
+		return fmt.Errorf("Failed to write page: %s", wErr)
+	}
+
+	if wrote != PageSize {
+		return fmt.Errorf("Data written does not match page size: Expected %d Actual: %d", PageSize, wrote)
+	}
+
+	return nil
 }
 
-func (pager *Pager) AllocatePage() (*Page, error) {
+func (pager *Pager) AllocatePage() *Page {
+	id := pager.numPages
+	pager.numPages += uint32(1)
 
+	page := NewPage()
+	page.ID = id
+	return page
 }
