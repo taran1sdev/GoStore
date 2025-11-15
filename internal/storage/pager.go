@@ -2,14 +2,11 @@ package storage
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 )
-
-var sig = []byte{'G', 'o', 'S', 't', 'o', 'r', 'e', '2', '5'}
 
 type Pager struct {
 	file     *os.File
@@ -73,12 +70,15 @@ func createDatabase(path string) (*os.File, error) {
 		return nil, fmt.Errorf("Unable to create file %s: %s", path, cErr)
 	}
 
-	metaPage := getMetaPage()
-	leafPage := getLeafPage()
+	mPage := NewPage()
+	lPage := NewPage()
+
+	metaPage := NewMetaPage(mPage)
+	leafPage := NewLeafPage(lPage)
 
 	f.Seek(0, io.SeekStart)
 
-	metaSize, wMetaErr := f.Write(metaPage[:])
+	metaSize, wMetaErr := f.Write(metaPage.Page.Data)
 	if wMetaErr != nil {
 		return f, fmt.Errorf("Error writing new Meta page to file: %s", wMetaErr)
 	} else if metaSize != PageSize {
@@ -87,7 +87,7 @@ func createDatabase(path string) (*os.File, error) {
 
 	f.Seek(0, io.SeekEnd)
 
-	leafSize, wLeafErr := f.Write(leafPage)
+	leafSize, wLeafErr := f.Write(leafPage.Page.Data)
 	if wLeafErr != nil {
 		return f, fmt.Errorf("Error writing new Leaf page to file: %s", wLeafErr)
 	} else if leafSize != PageSize {
@@ -98,51 +98,14 @@ func createDatabase(path string) (*os.File, error) {
 	return f, nil
 }
 
-func getMetaPage() []byte {
-	var pSize [2]byte
-	binary.LittleEndian.PutUint16(pSize[:], uint16(PageSize))
-
-	var rootId [4]byte
-	binary.LittleEndian.PutUint32(rootId[:], uint32(1))
-
-	page := make([]byte, PageSize)
-
-	copy(page[0:], sig)
-	copy(page[len(sig):], pSize[:])
-	copy(page[len(sig)+len(pSize):], rootId[:])
-
-	return page
-}
-
-func getLeafPage() []byte {
-	pType := byte(PageTypeLeaf)
-
-	var nCells [2]byte
-	binary.LittleEndian.PutUint16(nCells[:], uint16(0))
-
-	var fStart [2]byte
-	binary.LittleEndian.PutUint16(fStart[:], uint16(7))
-
-	var fEnd [2]byte
-	binary.LittleEndian.PutUint16(fEnd[:], uint16(4096))
-
-	page := make([]byte, PageSize)
-
-	page[0] = pType
-	copy(page[1:], nCells[:])
-	copy(page[len(nCells)+1:], fStart[:])
-	copy(page[len(fStart)+len(nCells)+1:], fEnd[:])
-	return page
-}
-
-func ReadPage(id uint32) (*Page, error) {
+func (pager *Pager) ReadPage(id uint32) (*Page, error) {
 
 }
 
-func WritePage(p *Page) error {
+func (pager *Pager) WritePage(p *Page) error {
 
 }
 
-func AllocatePage() (*Page, error) {
+func (pager *Pager) AllocatePage() (*Page, error) {
 
 }

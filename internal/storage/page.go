@@ -17,3 +17,9 @@ type Page struct {
 	Type PageType
 	Data []byte
 }
+
+func NewPage() *Page {
+	return &Page{
+		Data: make([]byte, PageSize),
+	}
+}
