@@ -92,8 +92,8 @@ func (lp *LeafPage) SetCellPointer(i int, ptr uint16) {
 	var cPtr [2]byte
 	binary.LittleEndian.PutUint16(cPtr[:], ptr)
 
-	base := dataStart + (i * 2)
-	copy(lp.Page.Data[base:base+2], cPtr[:])
+	off := dataStart + (i * 2)
+	copy(lp.Page.Data[off:off+2], cPtr[:])
 }
 
 func (lp *LeafPage) InsertCellPointer(i int, ptr uint16) {
@@ -146,10 +146,10 @@ func (lp *LeafPage) Insert(key, val []byte) error {
 
 // RECORD READ / WRITE
 func (lp *LeafPage) WriteRecord(key, val []byte) (uint16, error) {
-	var keyLen[2]byte
+	var keyLen [2]byte
 	binary.LittleEndian.PutUint16(keyLen[:], uint16(len(key)))
 
-	var valLen[2]byte
+	var valLen [2]byte
 	binary.LittleEndian.PutUint16(valLen[:], uint16(len(val)))
 
 	recordLen := len(keyLen) + len(valLen) + len(key) + len(val)
@@ -158,15 +158,15 @@ func (lp *LeafPage) WriteRecord(key, val []byte) (uint16, error) {
 	if off < lp.GetFreeStart() {
 		return 0, fmt.Errorf("Not enough space to write record")
 	}
-	
+
 	pos := off
 	copy(lp.Page.Data[pos:pos+2], keyLen[:])
 	pos += 2
 	copy(lp.Page.Data[pos:pos+2], valLen[:])
 	pos += 2
-	copy(lp.Page.Data[pos:pos + len(key)], key[:])
+	copy(lp.Page.Data[pos:pos+len(key)], key[:])
 	pos += len(key)
-	copy(lp.Page.Data[pos:pos + len(val)], val[:])
+	copy(lp.Page.Data[pos:pos+len(val)], val[:])
 
 	lp.SetFreeEnd(off)
 	return uint16(off), nil

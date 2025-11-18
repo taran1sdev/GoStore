@@ -12,6 +12,10 @@ const (
 	PageTypeFree
 )
 
+const (
+	maxChildren = 128
+)
+
 type Page struct {
 	ID   uint32
 	Type PageType

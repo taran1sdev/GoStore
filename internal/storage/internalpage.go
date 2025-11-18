@@ -1,6 +1,10 @@
 package storage
 
-import "encoding/binary"
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+)
 
 type InternalPage struct {
 	Page *Page
@@ -10,6 +14,7 @@ const (
 	numKeysOffset    int = 1
 	rChildOffset     int = 7
 	childStartOffset int = 11
+	keyPointerOffset     = childStartOffset + (maxChildren * 4)
 )
 
 func NewInternalPage(page *Page) *InternalPage {
@@ -19,7 +24,7 @@ func NewInternalPage(page *Page) *InternalPage {
 	binary.LittleEndian.PutUint16(nKeys[:], uint16(0))
 
 	var fStart [2]byte
-	binary.LittleEndian.PutUint16(fStart[:], uint16(childStartOffset))
+	binary.LittleEndian.PutUint16(fStart[:], uint16(keyPointerOffset))
 
 	var fEnd [2]byte
 	binary.LittleEndian.PutUint16(fEnd[:], uint16(PageSize))
@@ -72,6 +77,12 @@ func (ip *InternalPage) GetChild(i int) uint32 {
 	return binary.LittleEndian.Uint32(raw)
 }
 
+func (ip *InternalPage) GetKeyPointer(i int) uint16 {
+	off := keyPointerOffset + (i * 2)
+	raw := ip.Page.Data[off : off+2]
+	return binary.LittleEndian.Uint16(raw)
+}
+
 // SETTERS
 func (ip *InternalPage) SetNumKeys(n int) {
 	var nKeys [2]byte
@@ -109,7 +120,71 @@ func (ip *InternalPage) SetChild(i int, ptr uint32) {
 	copy(ip.Page.Data[off:off+4], kPtr[:])
 }
 
-// READ / WRITE
+func (ip *InternalPage) InsertChildPointer(i int, childPageID uint32) {
+	n := ip.GetNumKeys()
+
+	for j := n; j >= i; j-- {
+		child := ip.GetChild(j)
+		ip.SetChild(j+1, child)
+	}
+
+	ip.SetChild(i, childPageID)
+}
+
+func (ip *InternalPage) SetKeyPointer(i int, ptr uint16) {
+	var kPtr [2]byte
+	binary.LittleEndian.PutUint16(kPtr[:], ptr)
+
+	off := keyPointerOffset + (i * 2)
+	copy(ip.Page.Data[off:off+2], kPtr[:])
+}
+
+func (ip *InternalPage) InsertKeyPointer(i int, ptr uint16) {
+	n := ip.GetNumKeys()
+
+	for j := n - 1; j >= i; j-- {
+		ptrVal := ip.GetKeyPointer(j)
+		ip.SetKeyPointer(j+1, ptrVal)
+	}
+
+	ip.SetKeyPointer(i, ptr)
+
+	ip.SetNumKeys(n + 1)
+	ip.SetFreeStart(keyPointerOffset + ((n + 1) * 2))
+}
+
+func (ip *InternalPage) FindInsertIndex(key []byte) int {
+	n := ip.GetNumKeys()
+
+	low, high := 0, n
+
+	for low < high {
+		mid := (low + high) / 2
+		midPtr := ip.GetKeyPointer(mid)
+		midKey := ip.ReadKey(midPtr)
+		cmp := bytes.Compare(key, midKey)
+		if cmp <= 0 {
+			high = mid
+		} else {
+			low = mid + 1
+		}
+	}
+
+	return low
+}
+
+func (ip *InternalPage) InsertKey(key []byte) error {
+	idx := ip.FindInsertIndex(key)
+
+	off, err := ip.WriteKey(key)
+	if err != nil {
+		return err
+	}
+
+	ip.InsertKeyPointer(idx, off)
+	return nil
+}
+
 func (ip *InternalPage) ReadKey(off uint16) []byte {
 	pos := int(off)
 	keyLen := int(binary.LittleEndian.Uint16(ip.Page.Data[pos : pos+2]))
@@ -117,4 +192,24 @@ func (ip *InternalPage) ReadKey(off uint16) []byte {
 	pos += 2
 
 	return ip.Page.Data[pos : pos+keyLen]
+}
+
+func (ip *InternalPage) WriteKey(key []byte) (uint16, error) {
+	var keyLen [2]byte
+	binary.LittleEndian.PutUint16(keyLen[:], uint16(len(key)))
+
+	recordLen := 2 + len(key)
+
+	off := ip.GetFreeEnd() - recordLen
+
+	if off < ip.GetFreeStart() {
+		return 0, fmt.Errorf("Not enough space to write key")
+	}
+
+	copy(ip.Page.Data[off:off+2], keyLen[:])
+
+	copy(ip.Page.Data[off+2:off+2+len(key)], key[:])
+
+	ip.SetFreeEnd(off)
+	return uint16(off), nil
 }
