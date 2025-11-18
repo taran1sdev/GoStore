@@ -213,3 +213,17 @@ func (ip *InternalPage) WriteKey(key []byte) (uint16, error) {
 	ip.SetFreeEnd(off)
 	return uint16(off), nil
 }
+
+func (ip *InternalPage) InsertSeparator(key []byte, newChild uint32) bool {
+	idx := ip.FindInsertIndex(key)
+	keyPtr, err := ip.WriteKey(key)
+	if err != nil {
+		// True means we need to split the page
+		return true
+	}
+
+	ip.InsertKeyPointer(idx, keyPtr)
+	ip.InsertChildPointer(idx+1, newChild)
+	// False means no split required
+	return false
+}
