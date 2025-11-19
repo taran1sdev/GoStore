@@ -105,7 +105,6 @@ func (lp *LeafPage) InsertCellPointer(i int, ptr uint16) {
 	}
 
 	lp.SetCellPointer(i, ptr)
-
 	lp.SetNumCells(n + 1)
 
 	lp.SetFreeStart(dataStart + ((n + 1) * 2))

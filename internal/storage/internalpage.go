@@ -64,9 +64,9 @@ func (ip *InternalPage) GetFreeEnd() int {
 	return n
 }
 
-func (ip *InternalPage) GetRightChild() int {
+func (ip *InternalPage) GetRightChild() uint32 {
 	raw := ip.Page.Data[rChildOffset : rChildOffset+4]
-	n := int(binary.LittleEndian.Uint32(raw))
+	n := binary.LittleEndian.Uint32(raw)
 	return n
 }
 
