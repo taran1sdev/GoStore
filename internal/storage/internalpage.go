@@ -45,6 +45,12 @@ func NewInternalPage(page *Page) *InternalPage {
 	}
 }
 
+func WrapInternalPage(page *Page) *InternalPage {
+	return &InternalPage{
+		Page: page,
+	}
+}
+
 // GETTERS
 func (ip *InternalPage) GetNumKeys() int {
 	raw := ip.Page.Data[numKeysOffset : numKeysOffset+2]
@@ -105,30 +111,51 @@ func (ip *InternalPage) SetFreeEnd(n int) {
 	copy(ip.Page.Data[endOffset:endOffset+2], fEnd[:])
 }
 
-func (ip *InternalPage) SetRightChild(n int) {
+func (ip *InternalPage) SetRightChild(n uint32) {
 	var rChild [4]byte
-	binary.LittleEndian.PutUint32(rChild[:], uint32(n))
+	binary.LittleEndian.PutUint32(rChild[:], n)
 
 	copy(ip.Page.Data[rChildOffset:rChildOffset+4], rChild[:])
 }
 
 func (ip *InternalPage) SetChild(i int, ptr uint32) {
-	var kPtr [4]byte
-	binary.LittleEndian.PutUint32(kPtr[:], uint32(ptr))
+	var cPtr [4]byte
+	binary.LittleEndian.PutUint32(cPtr[:], uint32(ptr))
 
 	off := childStartOffset + (i * 4)
-	copy(ip.Page.Data[off:off+4], kPtr[:])
+	copy(ip.Page.Data[off:off+4], cPtr[:])
 }
 
 func (ip *InternalPage) InsertChildPointer(i int, childPageID uint32) {
 	n := ip.GetNumKeys()
 
-	for j := n; j >= i; j-- {
-		child := ip.GetChild(j)
-		ip.SetChild(j+1, child)
+	// These closures allow us to account for rightChild in the page header
+
+	getChild := func(j int) uint32 {
+		if j == n {
+			return ip.GetRightChild()
+		}
+		return ip.GetChild(j)
 	}
 
-	ip.SetChild(i, childPageID)
+	setChild := func(j int, ptr uint32) {
+		if j == n {
+			ip.SetRightChild(ptr)
+		} else {
+			ip.SetChild(j, ptr)
+		}
+	}
+
+	for j := n; j >= i; j-- {
+		child := getChild(j)
+		setChild(j+1, child)
+	}
+
+	if i == n+1 {
+		ip.SetRightChild(childPageID)
+	} else {
+		ip.SetChild(i, childPageID)
+	}
 }
 
 func (ip *InternalPage) SetKeyPointer(i int, ptr uint16) {
@@ -222,8 +249,8 @@ func (ip *InternalPage) InsertSeparator(key []byte, newChild uint32) bool {
 		return true
 	}
 
-	ip.InsertKeyPointer(idx, keyPtr)
 	ip.InsertChildPointer(idx+1, newChild)
-	// False means no split required
+	ip.InsertKeyPointer(idx, keyPtr)
+
 	return false
 }

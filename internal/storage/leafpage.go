@@ -40,6 +40,12 @@ func NewLeafPage(page *Page) *LeafPage {
 	}
 }
 
+func WrapLeafPage(page *Page) *LeafPage {
+	return &LeafPage{
+		Page: page,
+	}
+}
+
 // GETTERS
 func (lp *LeafPage) GetNumCells() int {
 	raw := lp.Page.Data[numCellsOffset : numCellsOffset+2]
