@@ -1,29 +1,33 @@
 package engine
 
-import "fmt"
+import (
+	"fmt"
+
+	"go.store/internal/storage"
+)
 
 type Engine struct {
-	data map[string][]byte
+	tree *storage.BTree
 }
 
-func NewEngine() *Engine {
+func NewEngine(tree *storage.BTree) *Engine {
 	return &Engine{
-		data: make(map[string][]byte),
+		tree: tree,
 	}
 }
 
-func (e *Engine) Set(key string, value []byte) {
-	e.data[key] = value
+func (e *Engine) Set(key string, value []byte) error {
+	_, err := e.tree.Insert([]byte(key), value)
+	return err
 }
 
 func (e *Engine) Get(key string) ([]byte, error) {
-	value, ok := e.data[key]
-	if !ok {
-		return nil, fmt.Errorf("Key does not exist")
+	val, ok, err := e.tree.Search([]byte(key))
+	if err != nil {
+		return nil, err
 	}
-	return value, nil
-}
-
-func (e *Engine) Delete(key string) {
-	delete(e.data, key)
+	if !ok {
+		return nil, fmt.Errorf("Key not found")
+	}
+	return val, nil
 }

@@ -9,7 +9,20 @@ import (
 type BTree struct {
 	pager *Pager
 	root  uint32
-	state InsertState
+}
+
+func NewBTree(pager *Pager) (*BTree, error) {
+	m, err := pager.ReadPage(0)
+	if err != nil {
+		return nil, err
+	}
+
+	metaPage := WrapMetaPage(m)
+	rootID := metaPage.GetRootID()
+	return &BTree{
+		pager: pager,
+		root:  rootID,
+	}, nil
 }
 
 func (bt *BTree) Search(key []byte) ([]byte, bool, error) {
@@ -174,6 +187,10 @@ func (bt *BTree) growRoot(sepKey []byte, leftID, rightID uint32) (bool, error) {
 	}
 
 	bt.root = root.Page.ID
+
+	meta, _ := bt.pager.ReadPage(0)
+	meta.SetRootID(bt.root)
+	bt.pager.WritePage(meta.Page)
 	return true, nil
 }
 
