@@ -196,8 +196,6 @@ func (bt *BTree) growRoot(sepKey []byte, leftID, rightID uint32) (bool, error) {
 }
 
 func (bt *BTree) Insert(key, val []byte) (bool, error) {
-	bt.state = StateTraverse
-
 	curr := bt.root
 	stack := &ParentStack{}
 
@@ -235,7 +233,8 @@ func (bt *BTree) Insert(key, val []byte) (bool, error) {
 				}
 
 				// No parent means we need to create a new root node
-				if parent, ok := stack.Pop(); !ok {
+				parent, ok := stack.Pop()
+				if !ok {
 					return bt.growRoot(sepKey, leafPage.Page.ID, rightPageID)
 				}
 

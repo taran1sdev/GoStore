@@ -39,19 +39,4 @@ func main() {
 		}
 		fmt.Printf("%s: %s\n", s, string(val))
 	}
-
-	// Try some deletes
-	dErr := db.Delete("Test")
-	if dErr != nil {
-		fmt.Printf("Oops.. %s", dErr)
-	}
-
-	// Try retrieve deleted value (should error)
-	nonExist, getErr := db.Get("Test")
-	if getErr != nil {
-		fmt.Printf("Success! %s", getErr)
-	} else {
-		fmt.Println(nonExist)
-	}
-
 }

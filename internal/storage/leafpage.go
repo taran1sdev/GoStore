@@ -77,7 +77,7 @@ func (lp *LeafPage) SetNumCells(n int) {
 	var nCells [2]byte
 	binary.LittleEndian.PutUint16(nCells[:], uint16(n))
 
-	copy(lp.Page.Data[numCellsOffset:], nCells)
+	copy(lp.Page.Data[numCellsOffset:], nCells[:])
 }
 
 func (lp *LeafPage) SetFreeStart(n int) {

@@ -23,7 +23,7 @@ func Open(path string) (*Database, error) {
 	return &Database{
 		engine: eng,
 		sync:   true,
-	}
+	}, nil
 }
 
 func (db *Database) Set(key string, val []byte) error {

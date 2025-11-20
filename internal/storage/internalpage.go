@@ -18,7 +18,7 @@ const (
 )
 
 func NewInternalPage(page *Page) *InternalPage {
-	pType := byte(pageTypeInternal)
+	pType := byte(PageTypeInternal)
 
 	var nKeys [2]byte
 	binary.LittleEndian.PutUint16(nKeys[:], uint16(0))
@@ -32,7 +32,7 @@ func NewInternalPage(page *Page) *InternalPage {
 	var rChild [4]byte
 	binary.LittleEndian.PutUint32(rChild[:], uint32(0))
 
-	page.Type = pageTypeInternal
+	page.Type = PageTypeInternal
 
 	page.Data[0] = pType
 	copy(page.Data[numKeysOffset:numKeysOffset+2], nKeys[:])

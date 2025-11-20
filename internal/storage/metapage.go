@@ -9,8 +9,8 @@ type MetaPage struct {
 var sig = []byte{'G', 'o', 'S', 't', 'o', 'r', 'e', '2', '5'}
 
 const (
-	sizeOffset int = 8
-	rootOffset int = 12
+	sizeOffset int = 9
+	rootOffset int = 15
 )
 
 func NewMetaPage(page *Page) *MetaPage {
