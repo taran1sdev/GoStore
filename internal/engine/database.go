@@ -13,7 +13,11 @@ func Open(path string) (*Database, error) {
 		return nil, err
 	}
 
-	bt := NewBTree(pager)
+	bt, bErr := storage.NewBTree(pager)
+	if bErr != nil {
+		return nil, bErr
+	}
+
 	eng := NewEngine(bt)
 
 	return &Database{

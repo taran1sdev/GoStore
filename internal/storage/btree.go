@@ -188,9 +188,10 @@ func (bt *BTree) growRoot(sepKey []byte, leftID, rightID uint32) (bool, error) {
 
 	bt.root = root.Page.ID
 
-	meta, _ := bt.pager.ReadPage(0)
-	meta.SetRootID(bt.root)
-	bt.pager.WritePage(meta.Page)
+	m, _ := bt.pager.ReadPage(0)
+	metaPage := WrapMetaPage(m)
+	metaPage.SetRootID(bt.root)
+	bt.pager.WritePage(metaPage.Page)
 	return true, nil
 }
 
