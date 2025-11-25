@@ -12,10 +12,13 @@ var dbPath string
 var db *engine.Database
 
 var rootCmd = &cobra.Command{
-	Use:   "gostore <path>",
-	Short: "GoStore - Simple Key Value Store",
-	Args:  cobra.ExactArgs(1),
+	Args:         cobra.ExactArgs(1),
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if db != nil {
+			return fmt.Errorf("Command not found")
+		}
+
 		dbPath = args[0]
 
 		var err error
@@ -37,7 +40,11 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.AddCommand(setCmd)
-	rootCmd.AddCommand(getCmd)
-	rootCmd.AddCommand(exitCmd)
+	rootCmd.SetHelpCommand(&cobra.Command{Hidden: true})
+	rootCmd.PersistentFlags().BoolP("help", "h", false, "help message")
+	rootCmd.PersistentFlags().MarkHidden("help")
+	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		fmt.Println("Usage:")
+		fmt.Println("	gostore <path to db>")
+	})
 }

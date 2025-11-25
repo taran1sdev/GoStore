@@ -10,6 +10,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Create our own help menu when run interactive
+func replHelp() {
+	fmt.Println("Commands")
+	fmt.Println("\tset <key> <value>")
+	fmt.Println("\tget <key>")
+	fmt.Println("\texit")
+}
+
 // Starts an interactive command session
 // Forwards commands to cobra
 func startREPL(root *cobra.Command) {
@@ -27,6 +35,11 @@ func startREPL(root *cobra.Command) {
 
 		// Check for blank input
 		if input == "" {
+			continue
+		}
+
+		if input == "help" {
+			replHelp()
 			continue
 		}
 
