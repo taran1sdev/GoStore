@@ -7,6 +7,7 @@ import (
 )
 
 var setCmd = &cobra.Command{
+	Use:  "set",
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		err := db.Set(args[0], []byte(args[1]))

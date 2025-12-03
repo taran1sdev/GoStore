@@ -15,6 +15,7 @@ func replHelp() {
 	fmt.Println("Commands")
 	fmt.Println("\tset <key> <value>")
 	fmt.Println("\tget <key>")
+	fmt.Println("\tdelete <key>")
 	fmt.Println("\texit")
 }
 

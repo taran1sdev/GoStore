@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"errors"
 )
 
 // B+Tree - each page is a node
@@ -216,6 +217,8 @@ func (bt *BTree) Insert(key, val []byte) (bool, error) {
 				leafPage := WrapLeafPage(page)
 				if fErr := leafPage.Insert(key, val); fErr == nil {
 					return true, bt.pager.WritePage(leafPage.Page)
+				} else if errors.Is(fErr, ErrKeyExists) {
+					return false, fErr
 				}
 				// If the page is full trigger a split
 				sepKey, rightPageID = bt.splitLeaf(leafPage)
@@ -275,6 +278,38 @@ func (bt *BTree) Insert(key, val []byte) (bool, error) {
 			}
 
 			curr = parent.pageID
+		}
+	}
+}
+
+func (bt *BTree) Delete(key []byte) error {
+	curr := bt.root
+
+	for {
+		page, err := bt.pager.ReadPage(curr)
+		if err != nil {
+			return err
+		}
+
+		switch page.Type {
+		case PageTypeLeaf:
+			leafPage := WrapLeafPage(page)
+
+			if err := leafPage.Delete(key); err != nil {
+				return err
+			}
+
+			return bt.pager.WritePage(leafPage.Page)
+
+		case PageTypeInternal:
+			internalPage := WrapInternalPage(page)
+			idx := internalPage.FindInsertIndex(key)
+
+			if idx == internalPage.GetNumKeys() {
+				curr = internalPage.GetRightChild()
+			} else {
+				curr = internalPage.GetChild(idx)
+			}
 		}
 	}
 }

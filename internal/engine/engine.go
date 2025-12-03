@@ -31,3 +31,7 @@ func (e *Engine) Get(key string) ([]byte, error) {
 	}
 	return val, nil
 }
+
+func (e *Engine) Delete(key string) error {
+	return e.tree.Delete([]byte(key))
+}

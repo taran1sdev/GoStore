@@ -31,8 +31,7 @@ func (db *Database) Set(key string, val []byte) error {
 }
 
 func (db *Database) Delete(key string) error {
-	// Not implemented
-	return nil
+	return db.engine.Delete(key)
 }
 
 func (db *Database) Get(key string) ([]byte, error) {

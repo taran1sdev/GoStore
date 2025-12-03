@@ -6,20 +6,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var getCmd = &cobra.Command{
-	Use:  "get",
+var delCommand = &cobra.Command{
+	Use:  "delete",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		val, err := db.Get(args[0])
+		err := db.Delete(args[0])
 		if err != nil {
 			return err
 		}
 
-		fmt.Println(string(val))
+		fmt.Printf("%s has been deleted!\n", args[0])
 		return nil
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(getCmd)
+	rootCmd.AddCommand(delCommand)
 }

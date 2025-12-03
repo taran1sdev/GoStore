@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 )
 
@@ -16,6 +17,9 @@ const (
 	endOffset      int = 5
 	dataStart      int = 7
 )
+
+var ErrKeyExists = errors.New("Key already exists")
+var ErrPageFull = errors.New("Not enough space to write record")
 
 func NewLeafPage(page *Page) *LeafPage {
 	pType := byte(PageTypeLeaf)
@@ -153,7 +157,7 @@ func (lp *LeafPage) Insert(key, val []byte) error {
 	if idx < lp.GetNumCells() {
 		existingKey := lp.ReadKey(lp.GetCellPointer(idx))
 		if bytes.Equal(existingKey, key) {
-			return fmt.Errorf("Key already exists")
+			return ErrKeyExists
 		}
 	}
 
@@ -177,7 +181,7 @@ func (lp *LeafPage) Compact() error {
 
 	records := make([]rec, n)
 
-	for i := 0; i < num; i++ {
+	for i := 0; i < n; i++ {
 		ptr := lp.GetCellPointer(i)
 		k, v := lp.ReadRecord(ptr)
 		records[i] = rec{key: k, val: v}
