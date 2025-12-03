@@ -139,6 +139,12 @@ func (lp *LeafPage) FindInsertIndex(key []byte) int {
 func (lp *LeafPage) Insert(key, val []byte) error {
 	idx := lp.FindInsertIndex(key)
 
+	if idx < lp.GetNumCells() {
+		existingKey := lp.ReadKey(lp.GetCellPointer(idx))
+		if bytes.Equal(existingKey, key) {
+			return fmt.Errorf("Key already exists")
+		}
+	}
 	off, err := lp.WriteRecord(key, val)
 	if err != nil {
 		return err
