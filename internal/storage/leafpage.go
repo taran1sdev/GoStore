@@ -116,6 +116,17 @@ func (lp *LeafPage) InsertCellPointer(i int, ptr uint16) {
 	lp.SetFreeStart(dataStart + ((n + 1) * 2))
 }
 
+func (lp *LeafPage) DeleteCellPointer(i int) {
+	n := lp.GetNumCells()
+
+	for j := i + 1; j < n; j++ {
+		ptrVal := lp.GetCellPointer(j)
+		lp.SetCellPointer(j-1, ptrVal)
+	}
+
+	lp.SetNumCells(n - 1)
+}
+
 func (lp *LeafPage) FindInsertIndex(key []byte) int {
 	n := lp.GetNumCells()
 
@@ -145,6 +156,7 @@ func (lp *LeafPage) Insert(key, val []byte) error {
 			return fmt.Errorf("Key already exists")
 		}
 	}
+
 	off, err := lp.WriteRecord(key, val)
 	if err != nil {
 		return err
@@ -153,6 +165,53 @@ func (lp *LeafPage) Insert(key, val []byte) error {
 	lp.InsertCellPointer(idx, off)
 
 	return nil
+}
+
+func (lp *LeafPage) Compact() error {
+	n := lp.GetNumCells()
+
+	type rec struct {
+		key []byte
+		val []byte
+	}
+
+	records := make([]rec, n)
+
+	for i := 0; i < num; i++ {
+		ptr := lp.GetCellPointer(i)
+		k, v := lp.ReadRecord(ptr)
+		records[i] = rec{key: k, val: v}
+	}
+
+	lp.SetFreeStart(dataStart + n*2)
+	lp.SetFreeEnd(PageSize)
+
+	for i := n - 1; i >= 0; i++ {
+		off, err := lp.WriteRecord(records[i].key, records[i].val)
+		if err != nil {
+			return err
+		}
+
+		lp.SetCellPointer(i, off)
+	}
+	return nil
+}
+
+func (lp *LeafPage) Delete(key []byte) error {
+	idx := lp.FindInsertIndex(key)
+
+	if idx >= lp.GetNumCells() {
+		return fmt.Errorf("Key does not exist")
+	}
+
+	targetKey := lp.ReadKey(lp.GetCellPointer(idx))
+	if !bytes.Equal(targetKey, key) {
+		return fmt.Errorf("Key does not exist")
+	}
+
+	lp.DeleteCellPointer(idx)
+
+	return lp.Compact()
 }
 
 // RECORD READ / WRITE
