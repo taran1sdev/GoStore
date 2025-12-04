@@ -76,6 +76,31 @@ func (lp *LeafPage) GetCellPointer(i int) uint16 {
 	return binary.LittleEndian.Uint16(raw)
 }
 
+func (lp *LeafPage) GetFirstRecordSize() int {
+	if lp.GetNumCells() == 0 {
+		return 0
+	}
+
+	off := lp.GetCellPointer(0)
+	k, v := lp.ReadRecord(off)
+	return 4 + len(k) + len(v)
+}
+
+func (lp *LeafPage) GetLastRecordSize() int {
+	n := lp.GetNumCells()
+	if n == 0 {
+		return 0
+	}
+
+	off := lp.GetCellPointer(n - 1)
+	k, v := lp.ReadRecord(off)
+	return 4 + len(k) + len(v)
+}
+
+func (lp *LeafPage) GetSpaceUsed() int {
+	return lp.GetFreeStart() + (PageSize - lp.GetFreeEnd())
+}
+
 // SETTERS
 func (lp *LeafPage) SetNumCells(n int) {
 	var nCells [2]byte

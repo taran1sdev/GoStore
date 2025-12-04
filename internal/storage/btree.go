@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"errors"
+	"fmt"
 )
 
 // B+Tree - each page is a node
@@ -282,8 +283,440 @@ func (bt *BTree) Insert(key, val []byte) (bool, error) {
 	}
 }
 
+func (bt *BTree) rebalanceLeaf(leaf *LeafPage, parent *InternalPage, idx int) (bool, error) {
+	var left, right *LeafPage
+	var leftID, rightID uint32
+
+	if idx > 0 {
+		leftID = parent.GetChild(idx - 1)
+	}
+
+	if leftID != 0 {
+		lp, _ := bt.pager.ReadPage(leftID)
+		left = WrapLeafPage(lp)
+	}
+
+	if idx < parent.GetNumKeys() {
+		rightID = parent.GetChild(idx + 1)
+	} else {
+		rightID = parent.GetRightChild()
+	}
+
+	if rightID != 0 {
+		rp, _ := bt.pager.ReadPage(rightID)
+		right = WrapLeafPage(rp)
+	}
+
+	if left != nil && bt.canBorrowLeaf(left, leaf, false) {
+		err := bt.borrowLeaf(left, leaf, parent, idx-1, false)
+		return false, err
+	}
+
+	if right != nil && bt.canBorrowLeaf(right, leaf, true) {
+		err := bt.borrowLeaf(right, leaf, parent, idx, true)
+		return false, err
+	}
+
+	if left != nil && bt.canMergeLeaf(left, leaf) {
+		err := bt.mergeLeaf(left, leaf, parent, idx-1, false)
+		return true, err
+	}
+
+	if right != nil && bt.canMergeLeaf(right, leaf) {
+		err := bt.mergeLeaf(right, leaf, parent, idx, true)
+		return true, err
+	}
+
+	return false, fmt.Errorf("rebalanceLeaf: no valid sibling found to borrow or merge")
+}
+
+func (bt *BTree) rebalanceInternal(page, parent *InternalPage, idx int, pageID uint32) (bool, error) {
+	if pageID == bt.root {
+		if page.GetNumKeys() == 0 {
+			onlyChild := page.GetChild(0)
+			bt.root = onlyChild
+
+			m, _ := bt.pager.ReadPage(0)
+			mp := WrapMetaPage(m)
+			mp.SetRootID(bt.root)
+			bt.pager.WritePage(mp.Page)
+			return false, nil
+		}
+		return false, nil
+	}
+
+	var left, right *InternalPage
+	var leftID, rightID uint32
+
+	if idx > 0 {
+		leftID = parent.GetChild(idx - 1)
+	}
+
+	if leftID != 0 {
+		lp, _ := bt.pager.ReadPage(leftID)
+		left = WrapInternalPage(lp)
+	}
+
+	if idx < parent.GetNumKeys() {
+		rightID = parent.GetChild(idx + 1)
+	} else {
+		rightID = parent.GetRightChild()
+	}
+
+	if rightID != 0 {
+		rp, _ := bt.pager.ReadPage(rightID)
+		right = WrapInternalPage(rp)
+	}
+
+	if left != nil && bt.canBorrowInternal(left, page, false) {
+		err := bt.borrowInternal(left, page, parent, idx-1, false)
+		return false, err
+	}
+
+	if right != nil && bt.canBorrowInternal(right, page, true) {
+		err := bt.borrowInternal(right, page, parent, idx, true)
+		return false, err
+	}
+
+	if left != nil && bt.canMergeInternal(left, page) {
+		err := bt.mergeInternal(left, page, parent, idx-1, false)
+		return true, err
+	}
+
+	if right != nil && bt.canMergeInternal(right, page) {
+		err := bt.mergeInternal(right, page, parent, idx, true)
+		return true, err
+	}
+
+	return false, fmt.Errorf("rebalanceInternal: no valid sibling found to borrow or merge")
+}
+
+func (bt *BTree) canBorrowLeaf(sib, leaf *LeafPage, right bool) bool {
+	if sib.GetNumCells() == 0 {
+		return false
+	}
+
+	var borrowSize int
+	if right {
+		borrowSize = sib.GetFirstRecordSize()
+	} else {
+		borrowSize = sib.GetLastRecordSize()
+	}
+
+	newUsed := sib.GetSpaceUsed() - borrowSize
+	return newUsed >= PageSize/2
+}
+
+func (bt *BTree) canBorrowInternal(sib, page *InternalPage, right bool) bool {
+	if sib.GetNumKeys() == 0 {
+		return false
+	}
+
+	var ptr uint16
+
+	if right {
+		ptr = sib.GetKeyPointer(0)
+	} else {
+		ptr = sib.GetKeyPointer(sib.GetNumKeys() - 1)
+	}
+
+	key := sib.ReadKey(ptr)
+	borrowSize := 6 + len(key)
+
+	newUsed := sib.GetSpaceUsed() - borrowSize
+	return newUsed >= PageSize/2
+}
+
+func (bt *BTree) canMergeLeaf(sib, leaf *LeafPage) bool {
+	return sib.GetSpaceUsed()+leaf.GetSpaceUsed() <= PageSize
+}
+
+func (bt *BTree) canMergeInternal(sib, page *InternalPage) bool {
+	return sib.GetSpaceUsed()+page.GetSpaceUsed() <= PageSize
+}
+
+func (bt *BTree) borrowLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx int, right bool) error {
+	var key, val []byte
+	var ptr uint16
+
+	if right {
+		ptr = sib.GetCellPointer(0)
+		key, val = sib.ReadRecord(ptr)
+
+		sib.DeleteCellPointer(0)
+		if err := sib.Compact(); err != nil {
+			return err
+		}
+	} else {
+		idx := sib.GetNumCells() - 1
+		ptr = sib.GetCellPointer(sib.GetNumCells() - 1)
+		key, val = sib.ReadRecord(ptr)
+
+		sib.DeleteCellPointer(idx)
+		if err := sib.Compact(); err != nil {
+			return err
+		}
+	}
+
+	if err := leaf.Insert(key, val); err != nil {
+		return err
+	}
+	if err := leaf.Compact(); err != nil {
+		return err
+	}
+
+	var newMin []byte
+
+	if right {
+		if sib.GetNumCells() == 0 {
+			return fmt.Errorf("borrowLeaf: right sibling empty")
+		}
+		off := sib.GetCellPointer(0)
+		newMin = sib.ReadKey(off)
+	} else {
+		if leaf.GetNumCells() == 0 {
+			return fmt.Errorf("borrowLeaf: leaf empty")
+		}
+		off := leaf.GetCellPointer(0)
+		newMin = leaf.ReadKey(off)
+	}
+
+	if err := parent.ReplaceKey(sepIdx, newMin); err != nil {
+		return err
+	}
+
+	// Closure here makes these calls a bit cleaner
+	var err error
+	writePage := func(page *Page) {
+		if err == nil {
+			err = bt.pager.WritePage(page)
+		}
+	}
+
+	writePage(sib.Page)
+	writePage(leaf.Page)
+	writePage(parent.Page)
+	return err
+}
+
+func (bt *BTree) borrowInternal(sib, page, parent *InternalPage, sepIdx int, right bool) error {
+	var borrowKey []byte
+	var borrowChild uint32
+	var ptr uint16
+
+	if right {
+		if sib.GetNumKeys() == 0 {
+			return fmt.Errorf("borrowInternal: right sibling empty")
+		}
+
+		ptr = sib.GetKeyPointer(0)
+		borrowKey = sib.ReadKey(ptr)
+
+		borrowChild = sib.GetChild(0)
+
+		sib.DeleteKey(0)
+		sib.DeleteChild(0)
+	} else {
+		n := sib.GetNumKeys()
+		if n == 0 {
+			return fmt.Errorf("borrowInternal: left sibling empty")
+		}
+
+		ptr = sib.GetKeyPointer(n - 1)
+		borrowKey = sib.ReadKey(ptr)
+		borrowChild = sib.GetRightChild()
+
+		sib.DeleteKey(n - 1)
+		sib.SetRightChild(sib.GetChild(n - 1))
+		sib.DeleteChild(n - 1)
+	}
+
+	parentPtr := parent.GetKeyPointer(sepIdx)
+	parentKey := parent.ReadKey(parentPtr)
+
+	if err := page.InsertKey(parentKey); err != nil {
+		return err
+	}
+
+	if right {
+		page.InsertChildPointer(page.GetNumKeys(), borrowChild)
+	} else {
+		page.InsertChildPointer(0, borrowChild)
+	}
+
+	if err := parent.ReplaceKey(sepIdx, borrowKey); err != nil {
+		return err
+	}
+
+	var err error
+	writePage := func(page *Page) {
+		if err == nil {
+			err = bt.pager.WritePage(page)
+		}
+	}
+
+	writePage(sib.Page)
+	writePage(page.Page)
+	writePage(parent.Page)
+
+	return err
+}
+
+func (bt *BTree) mergeLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx int, right bool) error {
+	type rec struct {
+		key []byte
+		val []byte
+	}
+
+	var dest *LeafPage
+	var records []rec
+
+	var lNum, sNum int = 0, 0
+	var ptr uint16
+
+	if right {
+		dest = leaf
+		lNum = leaf.GetNumCells()
+		sNum = sib.GetNumCells()
+		records = make([]rec, 0, lNum+sNum)
+
+		for i := 0; i < lNum; i++ {
+			ptr = leaf.GetCellPointer(i)
+			k, v := leaf.ReadRecord(ptr)
+			records = append(records, rec{key: k, val: v})
+		}
+
+		for i := 0; i < sNum; i++ {
+			ptr = sib.GetCellPointer(i)
+			k, v := sib.ReadRecord(ptr)
+			records = append(records, rec{key: k, val: v})
+		}
+	} else {
+		dest = sib
+		lNum = leaf.GetNumCells()
+		sNum = sib.GetNumCells()
+		records = make([]rec, 0, lNum+sNum)
+
+		for i := 0; i < sNum; i++ {
+			ptr = sib.GetCellPointer(i)
+			k, v := sib.ReadRecord(ptr)
+			records = append(records, rec{key: k, val: v})
+		}
+
+		for i := 0; i < lNum; i++ {
+			ptr = leaf.GetCellPointer(i)
+			k, v := leaf.ReadRecord(ptr)
+			records = append(records, rec{key: k, val: v})
+		}
+	}
+
+	nTotal := len(records)
+	dest.SetNumCells(0)
+	dest.SetFreeStart(dataStart)
+	dest.SetFreeEnd(PageSize)
+
+	for i := 0; i < nTotal; i++ {
+		if err := dest.Insert(records[i].key, records[i].val); err != nil {
+			return err
+		}
+	}
+
+	if err := parent.DeleteChild(sepIdx + 1); err != nil {
+		return err
+	}
+
+	if err := parent.DeleteKey(sepIdx); err != nil {
+		return err
+	}
+
+	var err error
+	writePage := func(page *Page) {
+		if err == nil {
+			err = bt.pager.WritePage(page)
+		}
+	}
+
+	writePage(dest.Page)
+	writePage(parent.Page)
+
+	return err
+}
+
+func (bt *BTree) mergeInternal(sib, page, parent *InternalPage, sepIdx int, right bool) error {
+	var leftNode, rightNode *InternalPage
+
+	if right {
+		leftNode = page
+		rightNode = sib
+	} else {
+		leftNode = sib
+		rightNode = page
+	}
+
+	lNum := leftNode.GetNumKeys()
+	rNum := rightNode.GetNumKeys()
+
+	sepPtr := parent.GetKeyPointer(sepIdx)
+	sepKey := parent.ReadKey(sepPtr)
+
+	keys := make([][]byte, 0, lNum+1+rNum)
+	children := make([]uint32, 0, lNum+rNum+2)
+
+	for i := 0; i < lNum; i++ {
+		children = append(children, leftNode.GetChild(i))
+		ptr := leftNode.GetKeyPointer(i)
+		keys = append(keys, leftNode.ReadKey(ptr))
+	}
+	children = append(children, leftNode.GetRightChild())
+
+	keys = append(keys, sepKey)
+
+	for i := 0; i < rNum; i++ {
+		children = append(children, rightNode.GetChild(i))
+		ptr := rightNode.GetKeyPointer(i)
+		keys = append(keys, rightNode.ReadKey(ptr))
+	}
+	children = append(children, rightNode.GetRightChild())
+
+	leftNode.SetNumKeys(0)
+	leftNode.SetFreeStart(keyPointerOffset)
+	leftNode.SetFreeEnd(PageSize)
+
+	for _, k := range keys {
+		leftNode.InsertKey(k)
+	}
+
+	for i := 0; i < len(children)-1; i++ {
+		leftNode.SetChild(i, children[i])
+	}
+	leftNode.SetRightChild(children[len(children)-1])
+
+	if err := parent.DeleteChild(sepIdx + 1); err != nil {
+		return err
+	}
+
+	if err := parent.DeleteKey(sepIdx); err != nil {
+		return err
+	}
+
+	var err error
+	writePage := func(page *Page) {
+		if err == nil {
+			err = bt.pager.WritePage(page)
+		}
+	}
+
+	writePage(leftNode.Page)
+	writePage(parent.Page)
+
+	return err
+}
+
 func (bt *BTree) Delete(key []byte) error {
 	curr := bt.root
+	stack := &ParentStack{}
+
+	propagating := false
 
 	for {
 		page, err := bt.pager.ReadPage(curr)
@@ -291,25 +724,106 @@ func (bt *BTree) Delete(key []byte) error {
 			return err
 		}
 
-		switch page.Type {
-		case PageTypeLeaf:
-			leafPage := WrapLeafPage(page)
+		if !propagating {
+			switch page.Type {
+			case PageTypeLeaf:
+				leaf := WrapLeafPage(page)
 
-			if err := leafPage.Delete(key); err != nil {
+				if err := leaf.Delete(key); err != nil {
+					return err
+				}
+
+				if leaf.GetSpaceUsed() >= PageSize/2 || curr == bt.root {
+					return bt.pager.WritePage(leaf.Page)
+				}
+
+				parentF, ok := stack.Pop()
+				if !ok {
+					return bt.pager.WritePage(leaf.Page)
+				}
+
+				parentP, err := bt.pager.ReadPage(parentF.pageID)
+				if err != nil {
+					return err
+				}
+
+				parent := WrapInternalPage(parentP)
+
+				prop, err := bt.rebalanceLeaf(leaf, parent, parentF.index)
+				if err != nil {
+					return err
+				}
+				if !prop {
+					return nil
+				}
+
+				curr = parent.Page.ID
+				propagating = true
+
+			case PageTypeInternal:
+				iPage := WrapInternalPage(page)
+				idx := iPage.FindInsertIndex(key)
+
+				stack.Push(Parent{
+					pageID: curr,
+					index:  idx,
+				})
+
+				if idx == iPage.GetNumKeys() {
+					curr = iPage.GetRightChild()
+				} else {
+					curr = iPage.GetChild(idx)
+				}
+			}
+		} else {
+			iPage := WrapInternalPage(page)
+
+			if curr == bt.root {
+				if iPage.GetNumKeys() == 0 {
+					childID := iPage.GetChild(0)
+					bt.root = childID
+
+					m, err := bt.pager.ReadPage(0)
+					if err != nil {
+						return err
+					}
+
+					meta := WrapMetaPage(m)
+					meta.SetRootID(bt.root)
+					if err := bt.pager.WritePage(meta.Page); err != nil {
+						return err
+					}
+				}
+
+				return nil
+			}
+
+			parentF, ok := stack.Pop()
+			if !ok {
+				return bt.pager.WritePage(iPage.Page)
+			}
+
+			parentP, err := bt.pager.ReadPage(parentF.pageID)
+			if err != nil {
 				return err
 			}
 
-			return bt.pager.WritePage(leafPage.Page)
+			parent := WrapInternalPage(parentP)
 
-		case PageTypeInternal:
-			internalPage := WrapInternalPage(page)
-			idx := internalPage.FindInsertIndex(key)
-
-			if idx == internalPage.GetNumKeys() {
-				curr = internalPage.GetRightChild()
-			} else {
-				curr = internalPage.GetChild(idx)
+			if iPage.GetSpaceUsed() >= PageSize/2 {
+				return bt.pager.WritePage(iPage.Page)
 			}
+
+			prop, err := bt.rebalanceInternal(iPage, parent, parentF.index, curr)
+			if err != nil {
+				return err
+			}
+
+			if !prop {
+				return nil
+			}
+
+			curr = parent.Page.ID
 		}
 	}
 }

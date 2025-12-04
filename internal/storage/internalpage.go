@@ -89,6 +89,10 @@ func (ip *InternalPage) GetKeyPointer(i int) uint16 {
 	return binary.LittleEndian.Uint16(raw)
 }
 
+func (ip *InternalPage) GetSpaceUsed() int {
+	return ip.GetFreeStart() + (PageSize - ip.GetFreeEnd())
+}
+
 // SETTERS
 func (ip *InternalPage) SetNumKeys(n int) {
 	var nKeys [2]byte
@@ -210,6 +214,94 @@ func (ip *InternalPage) InsertKey(key []byte) error {
 
 	ip.InsertKeyPointer(idx, off)
 	return nil
+}
+
+func (ip *InternalPage) Compact() error {
+	n := ip.GetNumKeys()
+
+	keys := make([][]byte, n)
+	for i := 0; i < n; i++ {
+		ptr := ip.GetKeyPointer(i)
+		keys[i] = ip.ReadKey(ptr)
+	}
+
+	children := make([]uint32, n+1)
+	for i := 0; i < n; i++ {
+		children[i] = ip.GetChild(i)
+	}
+	children[n] = ip.GetRightChild()
+
+	ip.SetFreeStart(keyPointerOffset + n*2)
+	ip.SetFreeEnd(PageSize)
+
+	for i := n - 1; i >= 0; i-- {
+		off, err := ip.WriteKey(keys[i])
+		if err != nil {
+			return err
+		}
+		ip.SetKeyPointer(i, off)
+	}
+
+	for i := 0; i < n; i++ {
+		ip.SetChild(i, children[i])
+	}
+	ip.SetRightChild(children[n])
+
+	return nil
+}
+
+func (ip *InternalPage) ReplaceKey(idx int, key []byte) error {
+	if err := ip.DeleteKey(idx); err != nil {
+		return err
+	}
+
+	off, err := ip.WriteKey(key)
+	if err != nil {
+		return err
+	}
+
+	ip.InsertKeyPointer(idx, off)
+
+	return nil
+}
+
+func (ip *InternalPage) DeleteKey(idx int) error {
+	n := ip.GetNumKeys()
+
+	for j := idx + 1; j < n; j++ {
+		off := ip.GetKeyPointer(j)
+		ip.SetKeyPointer(j-1, off)
+	}
+
+	ip.SetNumKeys(n - 1)
+	ip.SetFreeStart(keyPointerOffset + (ip.GetNumKeys() * 2))
+
+	return ip.Compact()
+}
+
+func (ip *InternalPage) DeleteChild(idx int) error {
+	n := ip.GetNumKeys()
+
+	// Use closures to simplify right child set / get decision
+	getChild := func(i int) uint32 {
+		if i == n {
+			return ip.GetRightChild()
+		}
+		return ip.GetChild(i)
+	}
+	setChild := func(i int, c uint32) {
+		if i == n {
+			ip.SetRightChild(c)
+		} else {
+			ip.SetChild(i, c)
+		}
+	}
+
+	for j := idx + 1; j <= n; j++ {
+		setChild(j-1, getChild(j))
+	}
+
+	return ip.Compact()
 }
 
 func (ip *InternalPage) ReadKey(off uint16) []byte {
