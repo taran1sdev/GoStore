@@ -130,36 +130,34 @@ func (ip *InternalPage) SetChild(i int, ptr uint32) {
 	copy(ip.Page.Data[off:off+4], cPtr[:])
 }
 
-func (ip *InternalPage) InsertChildPointer(i int, childPageID uint32) {
+// This is not as efficient as it could be - but we can edit it after debugging
+func (ip *InternalPage) InsertChildPointer(idx int, childPageID uint32) {
 	n := ip.GetNumKeys()
 
-	// These closures allow us to account for rightChild in the page header
-
-	getChild := func(j int) uint32 {
-		if j == n {
-			return ip.GetRightChild()
-		}
-		return ip.GetChild(j)
+	if idx < 0 || idx > n+1 {
+		panic(fmt.Sprintf("InsertChildPointer: index %d out of range (%d)", idx, n+1))
 	}
 
-	setChild := func(j int, ptr uint32) {
-		if j == n {
-			ip.SetRightChild(ptr)
-		} else {
-			ip.SetChild(j, ptr)
-		}
+	children := make([]uint32, n+1)
+
+	for j := 0; j < n; j++ {
+		children[j] = ip.GetChild(j)
+	}
+	children[n] = ip.GetRightChild()
+
+	newChildren := make([]uint32, n+2)
+
+	copy(newChildren[0:idx], children[0:idx])
+
+	newChildren[idx] = childPageID
+
+	copy(newChildren[idx+1:], children[idx:])
+
+	for j := 0; j < n+1; j++ {
+		ip.SetChild(j, newChildren[j])
 	}
 
-	for j := n; j >= i; j-- {
-		child := getChild(j)
-		setChild(j+1, child)
-	}
-
-	if i == n+1 {
-		ip.SetRightChild(childPageID)
-	} else {
-		ip.SetChild(i, childPageID)
-	}
+	ip.SetRightChild(newChildren[n+1])
 }
 
 func (ip *InternalPage) SetKeyPointer(i int, ptr uint16) {
@@ -194,7 +192,7 @@ func (ip *InternalPage) FindInsertIndex(key []byte) int {
 		midPtr := ip.GetKeyPointer(mid)
 		midKey := ip.ReadKey(midPtr)
 		cmp := bytes.Compare(key, midKey)
-		if cmp <= 0 {
+		if cmp < 0 {
 			high = mid
 		} else {
 			low = mid + 1
@@ -231,10 +229,10 @@ func (ip *InternalPage) Compact() error {
 	}
 	children[n] = ip.GetRightChild()
 
-	ip.SetFreeStart(keyPointerOffset + n*2)
+	ip.SetFreeStart(keyPointerOffset)
 	ip.SetFreeEnd(PageSize)
 
-	for i := n - 1; i >= 0; i-- {
+	for i := 0; i < n; i++ {
 		off, err := ip.WriteKey(keys[i])
 		if err != nil {
 			return err
@@ -282,26 +280,26 @@ func (ip *InternalPage) DeleteKey(idx int) error {
 func (ip *InternalPage) DeleteChild(idx int) error {
 	n := ip.GetNumKeys()
 
-	// Use closures to simplify right child set / get decision
-	getChild := func(i int) uint32 {
-		if i == n {
-			return ip.GetRightChild()
-		}
-		return ip.GetChild(i)
-	}
-	setChild := func(i int, c uint32) {
-		if i == n {
-			ip.SetRightChild(c)
-		} else {
-			ip.SetChild(i, c)
-		}
+	if idx < 0 || idx > n {
+		return fmt.Errorf("DeleteChild: index %d out of range (%d)", idx, n)
 	}
 
-	for j := idx + 1; j <= n; j++ {
-		setChild(j-1, getChild(j))
+	children := make([]uint32, n+1)
+	for j := 0; j < n; j++ {
+		children[j] = ip.GetChild(j)
 	}
+	children[n] = ip.GetRightChild()
 
-	return ip.Compact()
+	// cut out the record we are removing
+	copy(children[idx:], children[idx+1:])
+
+	children = children[:n]
+
+	for j := 0; j < n-1; j++ {
+		ip.SetChild(j, children[j])
+	}
+	ip.SetRightChild(children[n-1])
+	return nil
 }
 
 func (ip *InternalPage) ReadKey(off uint16) []byte {

@@ -55,10 +55,10 @@ func (bt *BTree) Search(key []byte) ([]byte, bool, error) {
 		if page.Type == PageTypeInternal {
 			internalPage := WrapInternalPage(page)
 			idx := internalPage.FindInsertIndex(key)
-			if idx == internalPage.GetNumKeys() {
-				curr = internalPage.GetRightChild()
-			} else {
+			if idx < internalPage.GetNumKeys() {
 				curr = internalPage.GetChild(idx)
+			} else {
+				curr = internalPage.GetRightChild()
 			}
 
 		}
@@ -93,6 +93,7 @@ func (s *ParentStack) Pop() (Parent, bool) {
 }
 
 func (bt *BTree) splitLeaf(left *LeafPage) ([]byte, uint32) {
+	fmt.Println("Splitting leaf page")
 	p := bt.pager.AllocatePage()
 	right := NewLeafPage(p)
 
@@ -100,17 +101,33 @@ func (bt *BTree) splitLeaf(left *LeafPage) ([]byte, uint32) {
 	numCells := left.GetNumCells()
 	mid := numCells / 2
 
-	for i := mid; i < numCells; i++ {
+	type rec struct {
+		key []byte
+		val []byte
+	}
+	var recs []rec
+
+	for i := 0; i < numCells; i++ {
 		ptr := left.GetCellPointer(i)
-		lKey, lVal := left.ReadRecord(ptr)
-		// Shouldn't need to handle this error with empty page
-		_ = right.Insert(lKey, lVal)
+		k, v := left.ReadRecord(ptr)
+		recs = append(recs, rec{key: k, val: v})
 	}
 
-	left.SetNumCells(mid)
-	left.SetFreeStart(dataStart + mid*2)
-	lastPtr := left.GetCellPointer(mid - 1)
-	left.SetFreeEnd(int(lastPtr))
+	left.SetNumCells(0)
+	left.SetFreeStart(dataStart)
+	left.SetFreeEnd(PageSize)
+
+	for i := 0; i < mid; i++ {
+		if err := left.Insert(recs[i].key, recs[i].val); err != nil {
+			panic(err)
+		}
+	}
+
+	for i := mid; i < numCells; i++ {
+		if err := right.Insert(recs[i].key, recs[i].val); err != nil {
+			panic(err)
+		}
+	}
 
 	sepPtr := right.GetCellPointer(0)
 	sepKey := right.ReadKey(sepPtr)
@@ -122,6 +139,7 @@ func (bt *BTree) splitLeaf(left *LeafPage) ([]byte, uint32) {
 }
 
 func (bt *BTree) splitInternal(left *InternalPage) ([]byte, uint32) {
+	fmt.Println("Splitting Internal Page")
 	p := bt.pager.AllocatePage()
 	right := NewInternalPage(p)
 
@@ -129,40 +147,50 @@ func (bt *BTree) splitInternal(left *InternalPage) ([]byte, uint32) {
 	numKeys := left.GetNumKeys()
 	mid := numKeys / 2
 
-	sepPtr := left.GetKeyPointer(mid)
-	sepKey := left.ReadKey(sepPtr)
-
-	rightChild := left.GetChild(mid)
-	oldRightChild := left.GetRightChild()
-
-	right.SetChild(0, left.GetChild(mid+1))
-
-	pos := 0
-	for i := mid + 1; i < numKeys; i++ {
+	keys := make([][]byte, numKeys)
+	for i := 0; i < numKeys; i++ {
 		ptr := left.GetKeyPointer(i)
-		lKey := left.ReadKey(ptr)
-
-		off, _ := right.WriteKey(lKey)
-		right.InsertKeyPointer(pos, off)
-
-		pos++
-
-		right.SetChild(pos, left.GetChild(i+1))
+		keys[i] = left.ReadKey(ptr)
 	}
-	right.SetRightChild(oldRightChild)
 
-	left.SetNumKeys(mid)
-	left.SetFreeStart(keyPointerOffset + (mid * 2))
-	left.SetRightChild(rightChild)
-
-	// Unlikely edge case if node only has one key
-	// But we should still check to avoid a panic
-	if mid > 0 {
-		lastPtr := left.GetKeyPointer(mid - 1)
-		left.SetFreeEnd(int(lastPtr))
-	} else {
-		left.SetFreeEnd(PageSize)
+	children := make([]uint32, numKeys+1)
+	for i := 0; i < numKeys; i++ {
+		children[i] = left.GetChild(i)
 	}
+	children[numKeys] = left.GetRightChild()
+
+	left.SetNumKeys(0)
+	left.SetFreeStart(keyPointerOffset)
+	left.SetFreeEnd(PageSize)
+
+	for i := 0; i < mid; i++ {
+		off, err := left.WriteKey(keys[i])
+		if err != nil {
+			panic(err)
+		}
+		left.SetKeyPointer(i, off)
+		left.SetChild(i, children[i])
+		left.SetNumKeys(i + 1)
+	}
+
+	left.SetRightChild(children[mid])
+
+	rightIdx := 0
+	for i := mid; i < numKeys; i++ {
+		off, err := right.WriteKey(keys[i])
+		if err != nil {
+			panic(err)
+		}
+		right.SetKeyPointer(rightIdx, off)
+		right.SetChild(rightIdx, children[i])
+		right.SetNumKeys(rightIdx + 1)
+		rightIdx++
+	}
+
+	right.SetRightChild(children[numKeys])
+
+	firstPtr := right.GetKeyPointer(0)
+	sepKey := right.ReadKey(firstPtr)
 
 	bt.pager.WritePage(left.Page)
 	bt.pager.WritePage(right.Page)
@@ -174,15 +202,15 @@ func (bt *BTree) growRoot(sepKey []byte, leftID, rightID uint32) (bool, error) {
 	p := bt.pager.AllocatePage()
 	root := NewInternalPage(p)
 
-	root.SetChild(0, leftID)
-	root.SetRightChild(rightID)
-
 	off, err := root.WriteKey(sepKey)
 	if err != nil {
 		return false, err
 	}
 
 	root.InsertKeyPointer(0, off)
+
+	root.SetChild(0, leftID)
+	root.SetRightChild(rightID)
 
 	if err := bt.pager.WritePage(root.Page); err != nil {
 		return false, err
@@ -255,13 +283,12 @@ func (bt *BTree) Insert(key, val []byte) (bool, error) {
 					pageID: curr,
 					index:  idx,
 				})
-				if idx == internalPage.GetNumKeys() {
-					curr = internalPage.GetRightChild()
-				} else {
+				if idx < internalPage.GetNumKeys() {
 					curr = internalPage.GetChild(idx)
+				} else {
+					curr = internalPage.GetRightChild()
 				}
 			}
-
 			// Propagation after a split
 		} else {
 			internalPage := WrapInternalPage(page)
@@ -284,11 +311,15 @@ func (bt *BTree) Insert(key, val []byte) (bool, error) {
 }
 
 func (bt *BTree) rebalanceLeaf(leaf *LeafPage, parent *InternalPage, idx int) (bool, error) {
+	fmt.Println("Rebalancing leaf")
 	var left, right *LeafPage
 	var leftID, rightID uint32
+	n := parent.GetNumKeys()
 
 	if idx > 0 {
 		leftID = parent.GetChild(idx - 1)
+	} else {
+		leftID = 0
 	}
 
 	if leftID != 0 {
@@ -296,10 +327,12 @@ func (bt *BTree) rebalanceLeaf(leaf *LeafPage, parent *InternalPage, idx int) (b
 		left = WrapLeafPage(lp)
 	}
 
-	if idx < parent.GetNumKeys() {
+	if idx < n-1 {
 		rightID = parent.GetChild(idx + 1)
-	} else {
+	} else if idx == n-1 {
 		rightID = parent.GetRightChild()
+	} else {
+		rightID = 0
 	}
 
 	if rightID != 0 {
@@ -331,6 +364,7 @@ func (bt *BTree) rebalanceLeaf(leaf *LeafPage, parent *InternalPage, idx int) (b
 }
 
 func (bt *BTree) rebalanceInternal(page, parent *InternalPage, idx int, pageID uint32) (bool, error) {
+	fmt.Println("Rebalancing internal")
 	if pageID == bt.root {
 		if page.GetNumKeys() == 0 {
 			onlyChild := page.GetChild(0)
@@ -347,6 +381,7 @@ func (bt *BTree) rebalanceInternal(page, parent *InternalPage, idx int, pageID u
 
 	var left, right *InternalPage
 	var leftID, rightID uint32
+	n := parent.GetNumKeys()
 
 	if idx > 0 {
 		leftID = parent.GetChild(idx - 1)
@@ -357,10 +392,12 @@ func (bt *BTree) rebalanceInternal(page, parent *InternalPage, idx int, pageID u
 		left = WrapInternalPage(lp)
 	}
 
-	if idx < parent.GetNumKeys() {
+	if idx < n-1 {
 		rightID = parent.GetChild(idx + 1)
-	} else {
+	} else if idx == n-1 {
 		rightID = parent.GetRightChild()
+	} else {
+		rightID = 0
 	}
 
 	if rightID != 0 {
@@ -428,14 +465,24 @@ func (bt *BTree) canBorrowInternal(sib, page *InternalPage, right bool) bool {
 }
 
 func (bt *BTree) canMergeLeaf(sib, leaf *LeafPage) bool {
-	return sib.GetSpaceUsed()+leaf.GetSpaceUsed() <= PageSize
+	return sib.GetSpaceUsed()+leaf.GetSpaceUsed() < PageSize
 }
 
 func (bt *BTree) canMergeInternal(sib, page *InternalPage) bool {
-	return sib.GetSpaceUsed()+page.GetSpaceUsed() <= PageSize
+	return sib.GetSpaceUsed()+page.GetSpaceUsed() < PageSize
 }
 
 func (bt *BTree) borrowLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx int, right bool) error {
+	var msg string
+
+	if right {
+		msg = "right sibling"
+	} else {
+		msg = "left sibling"
+	}
+
+	fmt.Printf("Leaf: Borrowing %s\n", msg)
+
 	var key, val []byte
 	var ptr uint16
 
@@ -500,6 +547,16 @@ func (bt *BTree) borrowLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx in
 }
 
 func (bt *BTree) borrowInternal(sib, page, parent *InternalPage, sepIdx int, right bool) error {
+	var msg string
+
+	if right {
+		msg = "right sibling"
+	} else {
+		msg = "left sibling"
+	}
+
+	fmt.Printf("Internal: Borrowing %s\n", msg)
+
 	var borrowKey []byte
 	var borrowChild uint32
 	var ptr uint16
@@ -514,8 +571,13 @@ func (bt *BTree) borrowInternal(sib, page, parent *InternalPage, sepIdx int, rig
 
 		borrowChild = sib.GetChild(0)
 
-		sib.DeleteKey(0)
-		sib.DeleteChild(0)
+		if err := sib.DeleteChild(0); err != nil {
+			return err
+		}
+
+		if err := sib.DeleteKey(0); err != nil {
+			return err
+		}
 	} else {
 		n := sib.GetNumKeys()
 		if n == 0 {
@@ -524,11 +586,16 @@ func (bt *BTree) borrowInternal(sib, page, parent *InternalPage, sepIdx int, rig
 
 		ptr = sib.GetKeyPointer(n - 1)
 		borrowKey = sib.ReadKey(ptr)
+
 		borrowChild = sib.GetRightChild()
 
-		sib.DeleteKey(n - 1)
-		sib.SetRightChild(sib.GetChild(n - 1))
-		sib.DeleteChild(n - 1)
+		if err := sib.DeleteKey(n - 1); err != nil {
+			return err
+		}
+
+		if err := sib.DeleteChild(n - 1); err != nil {
+			return err
+		}
 	}
 
 	parentPtr := parent.GetKeyPointer(sepIdx)
@@ -538,8 +605,10 @@ func (bt *BTree) borrowInternal(sib, page, parent *InternalPage, sepIdx int, rig
 		return err
 	}
 
+	newKeyCount := page.GetNumKeys()
+
 	if right {
-		page.InsertChildPointer(page.GetNumKeys(), borrowChild)
+		page.InsertChildPointer(newKeyCount, borrowChild)
 	} else {
 		page.InsertChildPointer(0, borrowChild)
 	}
@@ -563,6 +632,15 @@ func (bt *BTree) borrowInternal(sib, page, parent *InternalPage, sepIdx int, rig
 }
 
 func (bt *BTree) mergeLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx int, right bool) error {
+	var msg string
+
+	if right {
+		msg = "right sibling"
+	} else {
+		msg = "left sibling"
+	}
+	fmt.Printf("Leaf: Merging %s\n", msg)
+
 	type rec struct {
 		key []byte
 		val []byte
@@ -643,6 +721,15 @@ func (bt *BTree) mergeLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx int
 }
 
 func (bt *BTree) mergeInternal(sib, page, parent *InternalPage, sepIdx int, right bool) error {
+	var msg string
+
+	if right {
+		msg = "right sibling"
+	} else {
+		msg = "left sibling"
+	}
+
+	fmt.Printf("Internal: Merging %s\n", msg)
 	var leftNode, rightNode *InternalPage
 
 	if right {
@@ -769,10 +856,10 @@ func (bt *BTree) Delete(key []byte) error {
 					index:  idx,
 				})
 
-				if idx == iPage.GetNumKeys() {
-					curr = iPage.GetRightChild()
-				} else {
+				if idx < iPage.GetNumKeys() {
 					curr = iPage.GetChild(idx)
+				} else {
+					curr = iPage.GetRightChild()
 				}
 			}
 		} else {

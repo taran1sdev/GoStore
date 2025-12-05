@@ -154,6 +154,7 @@ func (lp *LeafPage) DeleteCellPointer(i int) {
 	}
 
 	lp.SetNumCells(n - 1)
+	lp.SetFreeStart(dataStart + ((n - 1) * 2))
 }
 
 func (lp *LeafPage) FindInsertIndex(key []byte) int {
@@ -212,16 +213,17 @@ func (lp *LeafPage) Compact() error {
 		records[i] = rec{key: k, val: v}
 	}
 
-	lp.SetFreeStart(dataStart + n*2)
+	lp.SetNumCells(0)
+	lp.SetFreeStart(dataStart)
 	lp.SetFreeEnd(PageSize)
 
-	for i := n - 1; i >= 0; i++ {
+	for i := 0; i < n; i++ {
 		off, err := lp.WriteRecord(records[i].key, records[i].val)
 		if err != nil {
 			return err
 		}
 
-		lp.SetCellPointer(i, off)
+		lp.InsertCellPointer(i, off)
 	}
 	return nil
 }
@@ -255,7 +257,7 @@ func (lp *LeafPage) WriteRecord(key, val []byte) (uint16, error) {
 	off := lp.GetFreeEnd() - recordLen
 
 	if off < lp.GetFreeStart() {
-		return 0, fmt.Errorf("Not enough space to write record")
+		return 0, ErrPageFull
 	}
 
 	pos := off
