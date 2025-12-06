@@ -50,6 +50,17 @@ func WrapLeafPage(page *Page) *LeafPage {
 	}
 }
 
+func (lp *LeafPage) DebugKeys() []string {
+	n := lp.GetNumCells()
+	out := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		ptr := lp.GetCellPointer(i)
+		k := lp.ReadKey(ptr)
+		out = append(out, string(k))
+	}
+	return out
+}
+
 // GETTERS
 func (lp *LeafPage) GetNumCells() int {
 	raw := lp.Page.Data[numCellsOffset : numCellsOffset+2]
@@ -223,7 +234,10 @@ func (lp *LeafPage) Compact() error {
 	for i := 0; i < n; i++ {
 		ptr := lp.GetCellPointer(i)
 		k, v := lp.ReadRecord(ptr)
-		records[i] = rec{key: k, val: v}
+
+		kCopy := append([]byte(nil), k...)
+		vCopy := append([]byte(nil), v...)
+		records[i] = rec{key: kCopy, val: vCopy}
 	}
 
 	lp.SetNumCells(0)

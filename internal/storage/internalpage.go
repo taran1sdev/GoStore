@@ -146,26 +146,21 @@ func (ip *InternalPage) InsertChildPointer(idx int, childPageID uint32) {
 		panic(fmt.Sprintf("InsertChildPointer: index %d out of range (%d)", idx, n+1))
 	}
 
-	children := make([]uint32, n+1)
-
-	for j := 0; j < n; j++ {
-		children[j] = ip.GetChild(j)
-	}
-	children[n] = ip.GetRightChild()
-
-	newChildren := make([]uint32, n+2)
-
-	copy(newChildren, children[:idx])
-
-	newChildren[idx] = childPageID
-
-	copy(newChildren[idx+1:], children[idx:])
-
-	for j := 0; j < n+1; j++ {
-		ip.SetChild(j, newChildren[j])
+	if idx < n {
+		for j := n - 1; j >= idx; j-- {
+			ip.SetChild(j+1, ip.GetChild(j))
+		}
+		ip.SetChild(idx, childPageID)
+		return
 	}
 
-	ip.SetRightChild(newChildren[n+1])
+	if idx == n {
+		ip.SetChild(n, childPageID)
+		return
+	}
+
+	ip.SetChild(n, ip.GetRightChild())
+	ip.SetRightChild(childPageID)
 }
 
 func (ip *InternalPage) SetKeyPointer(i int, ptr uint16) {
@@ -228,7 +223,8 @@ func (ip *InternalPage) Compact() error {
 	keys := make([][]byte, n)
 	for i := 0; i < n; i++ {
 		ptr := ip.GetKeyPointer(i)
-		keys[i] = ip.ReadKey(ptr)
+		k := ip.ReadKey(ptr)
+		keys[i] = append([]byte(nil), k...)
 	}
 
 	children := make([]uint32, n+1)
@@ -266,7 +262,7 @@ func (ip *InternalPage) ReplaceKey(idx int, key []byte) error {
 
 	ip.SetKeyPointer(idx, off)
 
-	return nil
+	return ip.Compact()
 }
 
 func (ip *InternalPage) DeleteKey(idx int) error {
@@ -289,22 +285,14 @@ func (ip *InternalPage) DeleteChild(idx int) error {
 	if idx < 0 || idx > n {
 		return fmt.Errorf("DeleteChild: index %d out of range (%d)", idx, n)
 	}
-
-	children := make([]uint32, n+1)
-	for j := 0; j < n; j++ {
-		children[j] = ip.GetChild(j)
+	if idx < n {
+		for j := idx; j < n-1; j++ {
+			ip.SetChild(j, ip.GetChild(j+1))
+		}
+		return nil
 	}
-	children[n] = ip.GetRightChild()
 
-	// cut out the record we are removing
-	copy(children[idx:], children[idx+1:])
-
-	children = children[:n]
-
-	for j := 0; j < n-1; j++ {
-		ip.SetChild(j, children[j])
-	}
-	ip.SetRightChild(children[n-1])
+	ip.SetRightChild(ip.GetChild(n - 1))
 	return nil
 }
 

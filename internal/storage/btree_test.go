@@ -8,6 +8,29 @@ import (
 	"go.store/internal/engine"
 )
 
+func TestDeleteAscending(t *testing.T) {
+	db, err := engine.Open("test_delete_ascending.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const N = 10000
+
+	for i := 0; i < N; i++ {
+		k := fmt.Sprintf("%08d", i)
+		if err := db.Set(k, []byte("x")); err != nil {
+			t.Fatalf("Set %s failed: %v", k, err)
+		}
+	}
+
+	for i := 0; i < N; i++ {
+		k := fmt.Sprintf("%08d", i)
+		if err := db.Delete(k); err != nil {
+			t.Fatalf("Delete %s failed: %v", k, err)
+		}
+	}
+}
+
 func TestAscendingInsertAndGet(t *testing.T) {
 	db, err := engine.Open("test_insert.db")
 	if err != nil {
