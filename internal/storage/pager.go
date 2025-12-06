@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -141,10 +142,42 @@ func (pager *Pager) WritePage(page *Page) error {
 }
 
 func (pager *Pager) AllocatePage() *Page {
-	id := pager.numPages
-	pager.numPages += uint32(1)
+	metaP, _ := pager.ReadPage(0)
+	meta := WrapMetaPage(metaP)
 
-	page := NewPage()
-	page.ID = id
-	return page
+	head := meta.GetFreeHead()
+	if head != InvalidPage && head < pager.numPages {
+		fmt.Printf("Reallocating Free Page: %d\n", int(head))
+
+		freePage, err := pager.ReadPage(head)
+		if err != nil {
+			fmt.Printf("AllocatePage: Unable to read free page %d: %v, resetting freeHead\n",
+				head, err)
+			meta.SetFreeHead(InvalidPage)
+			_ = pager.WritePage(meta.Page)
+			goto newPage
+		}
+
+		nextPage := binary.LittleEndian.Uint32(freePage.Data[1:5])
+		if nextPage != InvalidPage && nextPage >= pager.numPages {
+			fmt.Printf("AllocatePage: invalid next free page %d, resetting list\n", nextPage)
+			nextPage = InvalidPage
+		}
+
+		meta.SetFreeHead(nextPage)
+		pager.WritePage(meta.Page)
+
+		freePage.Data = make([]byte, PageSize)
+		freePage.Type = PageTypeFree
+		freePage.ID = head
+
+		return freePage
+	}
+
+newPage:
+	id := pager.numPages
+	pager.numPages++
+	p := NewPage()
+	p.ID = id
+	return p
 }

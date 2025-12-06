@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 )
@@ -11,8 +12,10 @@ import (
 const InvalidPage uint32 = 0xFFFFFFFF
 
 type BTree struct {
-	pager *Pager
-	root  uint32
+	pager     *Pager
+	root      uint32
+	meta      *MetaPage
+	metaDirty bool
 }
 
 func NewBTree(pager *Pager) (*BTree, error) {
@@ -24,8 +27,10 @@ func NewBTree(pager *Pager) (*BTree, error) {
 	metaPage := WrapMetaPage(m)
 	rootID := metaPage.GetRootID()
 	return &BTree{
-		pager: pager,
-		root:  rootID,
+		pager:     pager,
+		root:      rootID,
+		meta:      metaPage,
+		metaDirty: false,
 	}, nil
 }
 
@@ -232,10 +237,8 @@ func (bt *BTree) growRoot(sepKey []byte, leftID, rightID uint32) (bool, error) {
 
 	bt.root = root.Page.ID
 
-	m, _ := bt.pager.ReadPage(0)
-	metaPage := WrapMetaPage(m)
-	metaPage.SetRootID(bt.root)
-	bt.pager.WritePage(metaPage.Page)
+	bt.meta.SetRootID(bt.root)
+	bt.pager.WritePage(bt.meta.Page)
 	return true, nil
 }
 
@@ -405,10 +408,8 @@ func (bt *BTree) rebalanceInternal(page, parent *InternalPage, idx int, pageID u
 			onlyChild := page.GetChild(0)
 			bt.root = onlyChild
 
-			m, _ := bt.pager.ReadPage(0)
-			mp := WrapMetaPage(m)
-			mp.SetRootID(bt.root)
-			bt.pager.WritePage(mp.Page)
+			bt.meta.SetRootID(bt.root)
+			bt.FreePage(pageID)
 			return false, nil
 		}
 		return false, nil
@@ -679,16 +680,18 @@ func (bt *BTree) mergeLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx int
 		val []byte
 	}
 
-	var leftLeaf, rightLeaf, dest *LeafPage
+	var leftLeaf, rightLeaf, dest, orphan *LeafPage
 
 	if right {
 		leftLeaf = leaf
 		rightLeaf = sib
 		dest = leaf
+		orphan = sib
 	} else {
 		leftLeaf = sib
 		rightLeaf = leaf
 		dest = sib
+		orphan = leaf
 	}
 
 	lNum := leftLeaf.GetNumCells()
@@ -747,6 +750,7 @@ func (bt *BTree) mergeLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx int
 	writePage(dest.Page)
 	writePage(parent.Page)
 
+	bt.FreePage(orphan.Page.ID)
 	return err
 }
 
@@ -828,7 +832,15 @@ func (bt *BTree) mergeInternal(sib, page, parent *InternalPage, sepIdx int, righ
 	writePage(leftNode.Page)
 	writePage(parent.Page)
 
+	bt.FreePage(leftNode.Page.ID)
 	return err
+}
+
+func (bt *BTree) checkMeta() {
+	if bt.metaDirty {
+		bt.pager.WritePage(bt.meta.Page)
+		bt.metaDirty = false
+	}
 }
 
 func (bt *BTree) Delete(key []byte) error {
@@ -836,6 +848,8 @@ func (bt *BTree) Delete(key []byte) error {
 	stack := &ParentStack{}
 
 	propagating := false
+
+	defer bt.checkMeta()
 
 	for {
 		page, err := bt.pager.ReadPage(curr)
@@ -906,16 +920,8 @@ func (bt *BTree) Delete(key []byte) error {
 					childID := iPage.GetChild(0)
 					bt.root = childID
 
-					m, err := bt.pager.ReadPage(0)
-					if err != nil {
-						return err
-					}
-
-					meta := WrapMetaPage(m)
-					meta.SetRootID(bt.root)
-					if err := bt.pager.WritePage(meta.Page); err != nil {
-						return err
-					}
+					bt.meta.SetRootID(bt.root)
+					bt.FreePage(iPage.Page.ID)
 				}
 
 				return nil
@@ -950,4 +956,23 @@ func (bt *BTree) Delete(key []byte) error {
 			curr = parent.Page.ID
 		}
 	}
+}
+
+func (bt *BTree) FreePage(id uint32) {
+	if id == bt.root || id == 0 {
+		return
+	}
+
+	p, _ := bt.pager.ReadPage(id)
+
+	p.Type = PageTypeFree
+	p.Data = make([]byte, PageSize)
+
+	prevHead := bt.meta.GetFreeHead()
+	binary.LittleEndian.PutUint32(p.Data[1:5], prevHead)
+
+	bt.meta.SetFreeHead(id)
+	bt.metaDirty = true
+
+	bt.pager.WritePage(p)
 }
