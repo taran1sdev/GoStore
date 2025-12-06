@@ -197,6 +197,19 @@ func (lp *LeafPage) Insert(key, val []byte) error {
 	return nil
 }
 
+func (lp *LeafPage) Overwrite(key, val []byte) error {
+	idx := lp.FindInsertIndex(key)
+
+	off, err := lp.WriteRecord(key, val)
+	if err != nil {
+		return err
+	}
+
+	lp.InsertCellPointer(idx, off)
+
+	return nil
+}
+
 func (lp *LeafPage) Compact() error {
 	n := lp.GetNumCells()
 

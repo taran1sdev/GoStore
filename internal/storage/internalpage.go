@@ -123,6 +123,10 @@ func (ip *InternalPage) SetRightChild(n uint32) {
 }
 
 func (ip *InternalPage) SetChild(i int, ptr uint32) {
+	if i >= maxChildren {
+		panic("SetChild: index greater than maxChildren")
+	}
+
 	var cPtr [4]byte
 	binary.LittleEndian.PutUint32(cPtr[:], uint32(ptr))
 
@@ -133,6 +137,10 @@ func (ip *InternalPage) SetChild(i int, ptr uint32) {
 // This is not as efficient as it could be - but we can edit it after debugging
 func (ip *InternalPage) InsertChildPointer(idx int, childPageID uint32) {
 	n := ip.GetNumKeys()
+
+	if n+2 > maxChildren {
+		panic(fmt.Sprintf("InsertChildPointer: max children exceeded"))
+	}
 
 	if idx < 0 || idx > n+1 {
 		panic(fmt.Sprintf("InsertChildPointer: index %d out of range (%d)", idx, n+1))
@@ -147,7 +155,7 @@ func (ip *InternalPage) InsertChildPointer(idx int, childPageID uint32) {
 
 	newChildren := make([]uint32, n+2)
 
-	copy(newChildren[0:idx], children[0:idx])
+	copy(newChildren, children[:idx])
 
 	newChildren[idx] = childPageID
 
@@ -229,6 +237,7 @@ func (ip *InternalPage) Compact() error {
 	}
 	children[n] = ip.GetRightChild()
 
+	ip.SetNumKeys(0)
 	ip.SetFreeStart(keyPointerOffset)
 	ip.SetFreeEnd(PageSize)
 
@@ -238,27 +247,24 @@ func (ip *InternalPage) Compact() error {
 			return err
 		}
 		ip.SetKeyPointer(i, off)
-	}
 
-	for i := 0; i < n; i++ {
 		ip.SetChild(i, children[i])
 	}
+
 	ip.SetRightChild(children[n])
 
+	ip.SetFreeStart(keyPointerOffset + (n * 2))
+	ip.SetNumKeys(n)
 	return nil
 }
 
 func (ip *InternalPage) ReplaceKey(idx int, key []byte) error {
-	if err := ip.DeleteKey(idx); err != nil {
-		return err
-	}
-
 	off, err := ip.WriteKey(key)
 	if err != nil {
 		return err
 	}
 
-	ip.InsertKeyPointer(idx, off)
+	ip.SetKeyPointer(idx, off)
 
 	return nil
 }
@@ -332,6 +338,9 @@ func (ip *InternalPage) WriteKey(key []byte) (uint16, error) {
 }
 
 func (ip *InternalPage) InsertSeparator(key []byte, newChild uint32) bool {
+	if ip.GetNumKeys() >= maxChildren-1 {
+		return true
+	}
 	idx := ip.FindInsertIndex(key)
 	keyPtr, err := ip.WriteKey(key)
 	if err != nil {
