@@ -27,6 +27,36 @@ func (s *ParentStack) Pop() (Parent, bool) {
 	return Parent{}, false
 }
 
+// Single function to traverse the tree and return the correct leaf page / stack with visited parents
+func (bt *BTree) descend(key []byte) (*LeafPage, *ParentStack, error) {
+	curr := bt.root
+	stack := &ParentStack{}
+
+	for {
+		page, err := bt.pager.ReadPage(curr)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		switch page.Type {
+		case PageTypeLeaf:
+			return WrapLeafPage(page), stack, nil
+
+		case PageTypeInternal:
+			internal := WrapInternalPage(page)
+			idx := internal.FindInsertIndex(key)
+
+			stack.Push(Parent{pageID: curr})
+
+			if idx < internal.GetNumKeys() {
+				curr = internal.GetChild(idx)
+			} else {
+				curr = internal.GetRightChild()
+			}
+		}
+	}
+}
+
 // Originally Parent held the child index but this resulted in errors after merges
 // this helper ensures we always find the correct index in the parent node for the
 // current child
