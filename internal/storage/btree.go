@@ -832,7 +832,7 @@ func (bt *BTree) mergeInternal(sib, page, parent *InternalPage, sepIdx int, righ
 	writePage(leftNode.Page)
 	writePage(parent.Page)
 
-	bt.FreePage(leftNode.Page.ID)
+	bt.FreePage(rightNode.Page.ID)
 	return err
 }
 
