@@ -1,6 +1,10 @@
 package storage
 
-const PageSize = 4096
+const (
+	InvalidPage uint32 = 0xFFFFFFFF
+	PageSize           = 4096
+	maxChildren int    = 128
+)
 
 type PageType uint8
 
@@ -10,10 +14,6 @@ const (
 	PageTypeInternal
 	PageTypeOverflow
 	PageTypeFree
-)
-
-const (
-	maxChildren = 128
 )
 
 type Page struct {
