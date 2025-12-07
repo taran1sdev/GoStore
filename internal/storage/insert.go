@@ -5,35 +5,6 @@ import (
 	"errors"
 )
 
-func (bt *BTree) descendForInsert(key []byte) (*LeafPage, *ParentStack, error) {
-	curr := bt.root
-	stack := &ParentStack{}
-
-	for {
-		page, err := bt.pager.ReadPage(curr)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		switch page.Type {
-		case PageTypeLeaf:
-			return WrapLeafPage(page), stack, nil
-
-		case PageTypeInternal:
-			internal := WrapInternalPage(page)
-			idx := internal.FindInsertIndex(key)
-
-			stack.Push(Parent{pageID: curr})
-
-			if idx < internal.GetNumKeys() {
-				curr = internal.GetChild(idx)
-			} else {
-				curr = internal.GetRightChild()
-			}
-		}
-	}
-}
-
 func (bt *BTree) insertIntoLeaf(leaf *LeafPage, key, val []byte) (bool, []byte, uint32, error) {
 	// First try and insert the key, val into the leafpage
 	if err := leaf.Insert(key, val); err == nil {
@@ -62,7 +33,7 @@ func (bt *BTree) insertIntoLeaf(leaf *LeafPage, key, val []byte) (bool, []byte, 
 }
 
 func (bt *BTree) propogateSplit(
-	parentStack *ParentStack,
+	stack *ParentStack,
 	sepKey []byte,
 	leftID,
 	rightID uint32,
@@ -70,7 +41,7 @@ func (bt *BTree) propogateSplit(
 
 	for {
 		// Try pop our previously visited node
-		parent, ok := parentStack.Pop()
+		parent, ok := stack.Pop()
 
 		// if no parent then we need to create a new root node
 		if !ok {
@@ -112,7 +83,7 @@ func (bt *BTree) propogateSplit(
 
 // Entry point into insertion logic
 func (bt *BTree) Insert(key, val []byte) (bool, error) {
-	leaf, parentStack, err := bt.descendForInsert(key)
+	leaf, parentStack, err := bt.descend(key)
 	if err != nil {
 		return false, err
 	}

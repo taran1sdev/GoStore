@@ -33,40 +33,53 @@ func NewBTree(pager *Pager) (*BTree, error) {
 	}, nil
 }
 
-func (bt *BTree) Search(key []byte) ([]byte, bool, error) {
+// Single function to traverse the tree and return the correct leaf page / stack with visited parents
+func (bt *BTree) descend(key []byte) (*LeafPage, *ParentStack, error) {
 	curr := bt.root
+	stack := &ParentStack{}
+
 	for {
 		page, err := bt.pager.ReadPage(curr)
 		if err != nil {
-			return nil, false, err
+			return nil, nil, err
 		}
 
-		if page.Type == PageTypeLeaf {
-			leafPage := WrapLeafPage(page)
-			idx := leafPage.FindInsertIndex(key)
-			if idx >= leafPage.GetNumCells() {
-				return nil, false, nil
-			}
+		switch page.Type {
+		case PageTypeLeaf:
+			return WrapLeafPage(page), stack, nil
 
-			ptr := leafPage.GetCellPointer(idx)
+		case PageTypeInternal:
+			internal := WrapInternalPage(page)
+			idx := internal.FindInsertIndex(key)
 
-			if bytes.Equal(leafPage.ReadKey(ptr), key) {
-				_, val := leafPage.ReadRecord(ptr)
-				return val, true, nil
+			stack.Push(Parent{pageID: curr})
+
+			if idx < internal.GetNumKeys() {
+				curr = internal.GetChild(idx)
 			} else {
-				return nil, false, nil
+				curr = internal.GetRightChild()
 			}
 		}
+	}
+}
 
-		if page.Type == PageTypeInternal {
-			internalPage := WrapInternalPage(page)
-			idx := internalPage.FindInsertIndex(key)
-			if idx < internalPage.GetNumKeys() {
-				curr = internalPage.GetChild(idx)
-			} else {
-				curr = internalPage.GetRightChild()
-			}
+func (bt *BTree) Search(key []byte) ([]byte, bool, error) {
+	leaf, _, err := bt.descend(key)
+	if err != nil {
+		return nil, false, err
+	}
 
-		}
+	idx := leaf.FindInsertIndex(key)
+	if idx >= leaf.GetNumCells() {
+		return nil, false, nil
+	}
+
+	ptr := leaf.GetCellPointer(idx)
+
+	if bytes.Equal(leaf.ReadKey(ptr), key) {
+		_, val := leaf.ReadRecord(ptr)
+		return val, true, nil
+	} else {
+		return nil, false, nil
 	}
 }

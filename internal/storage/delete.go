@@ -1,7 +1,5 @@
 package storage
 
-import "fmt"
-
 func (bt *BTree) rebalanceLeaf(leaf *LeafPage, parent *InternalPage, idx int) (bool, error) {
 	var left, right *LeafPage
 	var leftID, rightID uint32
@@ -116,114 +114,104 @@ func (bt *BTree) rebalanceInternal(page, parent *InternalPage, idx int, pageID u
 	return false, nil
 }
 
-func (bt *BTree) Delete(key []byte) error {
-	curr := bt.root
-	stack := &ParentStack{}
+func (bt *BTree) deleteFromLeaf(leaf *LeafPage, key []byte) (bool, error) {
+	if err := leaf.Delete(key); err != nil {
+		return false, err
+	}
 
-	propagating := false
+	if err := bt.pager.WritePage(leaf.Page); err != nil {
+		return false, err
+	}
 
-	defer bt.checkMeta()
+	if leaf.Page.ID == bt.root || leaf.GetSpaceUsed() >= PageSize/2 {
+		return false, nil
+	}
 
+	return true, nil
+}
+
+func (bt *BTree) shrinkRoot(root *InternalPage) error {
+	if root.GetNumKeys() == 0 {
+		onlyChild := root.GetChild(0)
+		bt.root = onlyChild
+		bt.meta.SetRootID(onlyChild)
+		bt.FreePage(root.Page.ID)
+	}
+	return nil
+}
+
+func (bt *BTree) propogateDelete(stack *ParentStack, childID uint32) error {
 	for {
-		page, err := bt.pager.ReadPage(curr)
+
+		parentInfo, ok := stack.Pop()
+		if !ok {
+			return nil
+		}
+
+		parentPage, err := bt.pager.ReadPage(parentInfo.pageID)
+		if err != nil {
+			return err
+		}
+		parent := WrapInternalPage(parentPage)
+
+		childPage, err := bt.pager.ReadPage(childID)
 		if err != nil {
 			return err
 		}
 
-		if !propagating {
-			switch page.Type {
-			case PageTypeLeaf:
-				leaf := WrapLeafPage(page)
+		// Check first if the child is a leaf / internal page
+		if childPage.Type == PageTypeLeaf {
+			leaf := WrapLeafPage(childPage)
 
-				if err := leaf.Delete(key); err != nil {
-					fmt.Printf("Delete failed for key %s in leaf %d: %v\n",
-						string(key), leaf.Page.ID, err)
-					fmt.Printf("Leaf %d keys: %v\n", leaf.Page.ID, leaf.DebugKeys())
-					return err
-				}
+			idx := bt.findChildIndex(parent, childID)
 
-				if leaf.GetSpaceUsed() >= PageSize/2 || curr == bt.root {
-					return bt.pager.WritePage(leaf.Page)
-				}
-
-				parentF, ok := stack.Pop()
-				if !ok {
-					return bt.pager.WritePage(leaf.Page)
-				}
-
-				parentP, err := bt.pager.ReadPage(parentF.pageID)
-				if err != nil {
-					return err
-				}
-				parent := WrapInternalPage(parentP)
-
-				idx := bt.findChildIndex(parent, curr)
-
-				prop, err := bt.rebalanceLeaf(leaf, parent, idx)
-				if err != nil {
-					return err
-				}
-				if !prop {
-					return nil
-				}
-
-				curr = parent.Page.ID
-				propagating = true
-
-			case PageTypeInternal:
-				iPage := WrapInternalPage(page)
-				sepIdx := iPage.FindInsertIndex(key)
-
-				stack.Push(Parent{
-					pageID: curr,
-				})
-
-				if sepIdx < iPage.GetNumKeys() {
-					curr = iPage.GetChild(sepIdx)
-				} else {
-					curr = iPage.GetRightChild()
-				}
-			}
-		} else {
-			iPage := WrapInternalPage(page)
-			if curr == bt.root {
-				if iPage.GetNumKeys() == 0 {
-					childID := iPage.GetChild(0)
-					bt.root = childID
-
-					bt.meta.SetRootID(bt.root)
-					bt.FreePage(iPage.Page.ID)
-				}
-
-				return nil
-			}
-
-			parentF, ok := stack.Pop()
-			if !ok {
-				return bt.pager.WritePage(iPage.Page)
-			}
-
-			parentP, err := bt.pager.ReadPage(parentF.pageID)
+			merged, err := bt.rebalanceLeaf(leaf, parent, idx)
 			if err != nil {
 				return err
 			}
 
-			parent := WrapInternalPage(parentP)
-
-			if iPage.GetSpaceUsed() >= PageSize/2 {
-				return bt.pager.WritePage(iPage.Page)
-			}
-
-			idx := bt.findChildIndex(parent, curr)
-			prop, err := bt.rebalanceInternal(iPage, parent, idx, curr)
-			if err != nil {
-				return err
-			}
-			if !prop {
+			if !merged {
 				return nil
 			}
 
-			curr = parent.Page.ID
+			childID = parent.Page.ID
+			continue
+		}
+
+		internal := WrapInternalPage(childPage)
+		idx := bt.findChildIndex(parent, childID)
+
+		merged, err := bt.rebalanceInternal(internal, parent, idx, childID)
+		if err != nil {
+			return err
+		}
+
+		if !merged {
+			return nil
+		}
+
+		childID = parent.Page.ID
+
+		if childID == bt.root {
+			return bt.shrinkRoot(parent)
 		}
 	}
+}
+
+func (bt *BTree) Delete(key []byte) error {
+	leaf, stack, err := bt.descend(key)
+	if err != nil {
+		return err
+	}
+
+	prop, err := bt.deleteFromLeaf(leaf, key)
+	if err != nil {
+		return err
+	}
+
+	if !prop {
+		return nil
+	}
+
+	return bt.propogateDelete(stack, leaf.Page.ID)
 }
