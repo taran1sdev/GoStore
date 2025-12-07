@@ -35,4 +35,8 @@ func TestFreePage(t *testing.T) {
 			t.Fatalf("Set %s failed: %v", k, err)
 		}
 	}
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("Error closing DB: %v", err)
+	}
 }

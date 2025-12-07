@@ -13,9 +13,10 @@ import (
 // allowing the application to recover from crashes
 
 type WAL struct {
-	file  *os.File
-	pager *Pager
-	size  int64
+	file     *os.File
+	filePath string
+	pager    *Pager
+	size     int64
 }
 
 var ErrInvalidChecksum = errors.New("invalid checksum")
@@ -36,9 +37,10 @@ func OpenWAL(path string, pager *Pager) (*WAL, error) {
 
 	info, _ := f.Stat()
 	return &WAL{
-		file:  f,
-		pager: pager,
-		size:  info.Size(),
+		file:     f,
+		filePath: path + ".wal",
+		pager:    pager,
+		size:     info.Size(),
 	}, nil
 }
 
@@ -59,9 +61,9 @@ func (wal *WAL) LogPage(page *Page) error {
 
 	wal.size += int64(n)
 
-	if wal.size >= WALCheckpointSize {
-		return wal.Checkpoint()
-	}
+	//	if wal.size >= WALCheckpointSize {
+	//		return wal.Checkpoint()
+	//	}
 	return nil
 }
 

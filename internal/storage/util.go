@@ -35,3 +35,7 @@ func (bt *BTree) FreePage(id uint32) {
 
 	bt.writePage(p)
 }
+
+func (bt *BTree) Close() error {
+	return bt.pager.Close()
+}

@@ -9,6 +9,10 @@ import (
 var exitCmd = &cobra.Command{
 	Use: "exit",
 	Run: func(cmd *cobra.Command, args []string) {
+		if err := db.Close(); err != nil {
+			return err
+		}
+
 		os.Exit(0)
 	},
 }

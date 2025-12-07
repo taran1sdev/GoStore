@@ -39,3 +39,7 @@ func (db *Database) Delete(key string) error {
 func (db *Database) Get(key string) ([]byte, error) {
 	return db.engine.Get(key)
 }
+
+func (db *Database) Close() error {
+	return db.engine.Close()
+}

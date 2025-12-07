@@ -35,3 +35,7 @@ func (e *Engine) Get(key string) ([]byte, error) {
 func (e *Engine) Delete(key string) error {
 	return e.tree.Delete([]byte(key))
 }
+
+func (e *Engine) Close() error {
+	return e.tree.Close()
+}

@@ -11,6 +11,7 @@ import (
 
 type Pager struct {
 	file      *os.File
+	filePath  string
 	wal       *WAL
 	pageSize  int
 	numPages  uint32
@@ -47,6 +48,7 @@ func Open(path string) (*Pager, error) {
 	pager := &Pager{
 		file:     f,
 		pageSize: PageSize,
+		filePath: path,
 		numPages: uint32(size / PageSize),
 	}
 
@@ -206,4 +208,11 @@ newPage:
 
 func (pager *Pager) Sync() error {
 	return pager.file.Sync()
+}
+
+func (pager *Pager) Close() error {
+	if err := pager.wal.Checkpoint(); err != nil {
+		return err
+	}
+	return os.Remove(pager.wal.filePath)
 }
