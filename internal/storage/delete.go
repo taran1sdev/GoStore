@@ -1,5 +1,21 @@
 package storage
 
+func (bt *BTree) deleteFromLeaf(leaf *LeafPage, key []byte) (bool, error) {
+	if err := leaf.Delete(key); err != nil {
+		return false, err
+	}
+
+	if err := bt.writePage(leaf.Page); err != nil {
+		return false, err
+	}
+
+	if leaf.Page.ID == bt.root || leaf.GetSpaceUsed() >= PageSize/2 {
+		return false, nil
+	}
+
+	return true, nil
+}
+
 func (bt *BTree) shrinkRoot(root *InternalPage) error {
 	if root.GetNumKeys() == 0 {
 		onlyChild := root.GetChild(0)

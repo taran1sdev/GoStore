@@ -8,7 +8,7 @@ import (
 func (bt *BTree) insertIntoLeaf(leaf *LeafPage, key, val []byte) (bool, []byte, uint32, error) {
 	// First try and insert the key, val into the leafpage
 	if err := leaf.Insert(key, val); err == nil {
-		return true, nil, 0, bt.pager.WritePage(leaf.Page)
+		return true, nil, 0, bt.writePage(leaf.Page)
 	} else if errors.Is(err, ErrKeyExists) {
 		return false, nil, 0, err
 	}
@@ -21,12 +21,12 @@ func (bt *BTree) insertIntoLeaf(leaf *LeafPage, key, val []byte) (bool, []byte, 
 	if bytes.Compare(key, sepKey) <= 0 {
 		// There is always space after a split
 		_ = leaf.Insert(key, val)
-		err = bt.pager.WritePage(leaf.Page)
+		err = bt.writePage(leaf.Page)
 	} else {
 		right, _ := bt.pager.ReadPage(rightPageID)
 		rleaf := WrapLeafPage(right)
 		_ = rleaf.Insert(key, val)
-		err = bt.pager.WritePage(rleaf.Page)
+		err = bt.writePage(rleaf.Page)
 	}
 
 	return false, sepKey, rightPageID, err
@@ -57,7 +57,7 @@ func (bt *BTree) propogateSplit(
 
 		// Try insert the new separator into the parent (false means no split required)
 		if !internal.InsertSeparator(sepKey, rightID) {
-			return true, bt.pager.WritePage(internal.Page)
+			return true, bt.writePage(internal.Page)
 		}
 
 		// If we need an internal split - keep track of the original separator to insert
@@ -71,10 +71,10 @@ func (bt *BTree) propogateSplit(
 
 		if bytes.Compare(origKey, sepKey) < 0 {
 			_ = leftNode.InsertSeparator(origKey, origChild)
-			bt.pager.WritePage(leftNode.Page)
+			bt.writePage(leftNode.Page)
 		} else {
 			_ = rightNode.InsertSeparator(origKey, origChild)
-			bt.pager.WritePage(rightNode.Page)
+			bt.writePage(rightNode.Page)
 		}
 
 		leftID = leftNode.Page.ID

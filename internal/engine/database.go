@@ -1,6 +1,8 @@
 package engine
 
-import "go.store/internal/storage"
+import (
+	"go.store/internal/storage"
+)
 
 type Database struct {
 	engine *Engine

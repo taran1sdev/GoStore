@@ -2,10 +2,15 @@ package storage
 
 import "encoding/binary"
 
+// Avoid calling pager.WritePage directly and log all changes before they are made
+func (bt *BTree) writePage(page *Page) error {
+	return bt.pager.WritePage(page)
+}
+
 // Helper to check if we need to write the meta page in memory to disk
 func (bt *BTree) checkMeta() {
 	if bt.metaDirty {
-		bt.pager.WritePage(bt.meta.Page)
+		bt.writePage(bt.meta.Page)
 		bt.metaDirty = false
 	}
 }
@@ -20,6 +25,7 @@ func (bt *BTree) FreePage(id uint32) {
 
 	p.Type = PageTypeFree
 	p.Data = make([]byte, PageSize)
+	p.Data[0] = byte(PageTypeFree)
 
 	prevHead := bt.meta.GetFreeHead()
 	binary.LittleEndian.PutUint32(p.Data[1:5], prevHead)
@@ -27,5 +33,5 @@ func (bt *BTree) FreePage(id uint32) {
 	bt.meta.SetFreeHead(id)
 	bt.metaDirty = true
 
-	bt.pager.WritePage(p)
+	bt.writePage(p)
 }

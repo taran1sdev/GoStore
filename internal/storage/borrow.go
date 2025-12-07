@@ -99,7 +99,7 @@ func (bt *BTree) borrowLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx in
 	var err error
 	writePage := func(page *Page) {
 		if err == nil {
-			err = bt.pager.WritePage(page)
+			err = bt.writePage(page)
 		}
 	}
 
@@ -174,7 +174,7 @@ func (bt *BTree) borrowInternal(sib, page, parent *InternalPage, sepIdx int, rig
 	var err error
 	writePage := func(page *Page) {
 		if err == nil {
-			err = bt.pager.WritePage(page)
+			err = bt.writePage(page)
 		}
 	}
 

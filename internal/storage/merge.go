@@ -88,7 +88,7 @@ func (bt *BTree) mergeLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx int
 	var err error
 	writePage := func(page *Page) {
 		if err == nil {
-			err = bt.pager.WritePage(page)
+			err = bt.writePage(page)
 		}
 	}
 
@@ -169,7 +169,7 @@ func (bt *BTree) mergeInternal(sib, page, parent *InternalPage, sepIdx int, righ
 	var err error
 	writePage := func(page *Page) {
 		if err == nil {
-			err = bt.pager.WritePage(page)
+			err = bt.writePage(page)
 		}
 	}
 	writePage(leftNode.Page)

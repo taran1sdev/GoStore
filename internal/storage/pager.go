@@ -10,9 +10,11 @@ import (
 )
 
 type Pager struct {
-	file     *os.File
-	pageSize int
-	numPages uint32
+	file      *os.File
+	wal       *WAL
+	pageSize  int
+	numPages  uint32
+	Replaying bool
 }
 
 func Open(path string) (*Pager, error) {
@@ -42,15 +44,28 @@ func Open(path string) (*Pager, error) {
 		return nil, fmt.Errorf("Corrupt DB file")
 	}
 
-	return &Pager{
+	pager := &Pager{
 		file:     f,
 		pageSize: PageSize,
 		numPages: uint32(size / PageSize),
-	}, nil
+	}
+
+	wal, wErr := OpenWAL(path, pager)
+	if wErr != nil {
+		return nil, wErr
+	}
+
+	pager.wal = wal
+
+	if err := wal.Replay(); err != nil {
+		return nil, err
+	}
+
+	return pager, nil
 }
 
 func checkSignature(f *os.File) error {
-	if _, sErr := f.Seek(0, io.SeekStart); sErr != nil {
+	if _, sErr := f.Seek(1, io.SeekStart); sErr != nil {
 		return fmt.Errorf("Error seeking start of file: %s", sErr)
 	}
 
@@ -123,6 +138,12 @@ func (pager *Pager) ReadPage(id uint32) (*Page, error) {
 }
 
 func (pager *Pager) WritePage(page *Page) error {
+	if !pager.Replaying {
+		if err := pager.wal.LogPage(page); err != nil {
+			fmt.Printf("Error: %v", err)
+		}
+	}
+
 	offset := int64(page.ID) * PageSize
 
 	if _, sErr := pager.file.Seek(offset, io.SeekStart); sErr != nil {
@@ -169,6 +190,7 @@ func (pager *Pager) AllocatePage() *Page {
 
 		freePage.Data = make([]byte, PageSize)
 		freePage.Type = PageTypeFree
+		freePage.Data[0] = byte(PageTypeFree)
 		freePage.ID = head
 
 		return freePage
@@ -180,4 +202,8 @@ newPage:
 	p := NewPage()
 	p.ID = id
 	return p
+}
+
+func (pager *Pager) Sync() error {
+	return pager.file.Sync()
 }

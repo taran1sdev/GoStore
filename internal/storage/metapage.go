@@ -9,12 +9,14 @@ type MetaPage struct {
 var sig = []byte{'G', 'o', 'S', 't', 'o', 'r', 'e', '2', '5'}
 
 const (
-	sizeOffset         int = 9
-	rootOffset         int = 15
-	freePageHeadOffset int = 19
+	sizeOffset         int = 10
+	rootOffset         int = 12
+	freePageHeadOffset int = 16
 )
 
 func NewMetaPage(page *Page) *MetaPage {
+	page.Data[0] = byte(PageTypeMeta)
+
 	var pSize [2]byte
 	binary.LittleEndian.PutUint16(pSize[:], uint16(PageSize))
 
@@ -24,7 +26,7 @@ func NewMetaPage(page *Page) *MetaPage {
 	var freeHead [4]byte
 	binary.LittleEndian.PutUint32(freeHead[:], InvalidPage)
 
-	copy(page.Data[0:], sig)
+	copy(page.Data[1:], sig)
 	copy(page.Data[sizeOffset:], pSize[:])
 	copy(page.Data[rootOffset:], rootId[:])
 	copy(page.Data[freePageHeadOffset:], freeHead[:])

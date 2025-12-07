@@ -44,8 +44,8 @@ func (bt *BTree) splitLeaf(left *LeafPage) ([]byte, uint32) {
 	sepPtr := right.GetCellPointer(0)
 	sepKey := right.ReadKey(sepPtr)
 
-	bt.pager.WritePage(left.Page)
-	bt.pager.WritePage(right.Page)
+	bt.writePage(left.Page)
+	bt.writePage(right.Page)
 
 	return sepKey, right.Page.ID
 }
@@ -97,8 +97,8 @@ func (bt *BTree) splitInternal(left *InternalPage) ([]byte, uint32) {
 
 	sepKey := keys[mid]
 
-	bt.pager.WritePage(left.Page)
-	bt.pager.WritePage(right.Page)
+	bt.writePage(left.Page)
+	bt.writePage(right.Page)
 
 	return sepKey, right.Page.ID
 }
@@ -113,13 +113,13 @@ func (bt *BTree) growRoot(sepKey []byte, leftID, rightID uint32) (bool, error) {
 		panic("split during growRoot")
 	}
 
-	if err := bt.pager.WritePage(root.Page); err != nil {
+	if err := bt.writePage(root.Page); err != nil {
 		return false, err
 	}
 
 	bt.root = root.Page.ID
 
 	bt.meta.SetRootID(bt.root)
-	bt.pager.WritePage(bt.meta.Page)
+	bt.writePage(bt.meta.Page)
 	return true, nil
 }
