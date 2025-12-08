@@ -1,31 +1,8 @@
 package engine
 
-import (
-	"go.store/internal/storage"
-)
-
 type Database struct {
 	engine *Engine
 	sync   bool
-}
-
-func Open(path string) (*Database, error) {
-	pager, err := storage.Open(path)
-	if err != nil {
-		return nil, err
-	}
-
-	bt, bErr := storage.NewBTree(pager)
-	if bErr != nil {
-		return nil, bErr
-	}
-
-	eng := NewEngine(bt)
-
-	return &Database{
-		engine: eng,
-		sync:   true,
-	}, nil
 }
 
 func (db *Database) Set(key string, val []byte) error {

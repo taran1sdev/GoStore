@@ -23,7 +23,8 @@ func (bt *BTree) canMergeInternal(sib, page *InternalPage) bool {
 
 func (bt *BTree) mergeLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx int, right bool) error {
 	if sib.Page.ID == leaf.Page.ID {
-		panic(fmt.Sprintf("mergeLeaf: sibling and leaf are the same page (%d)", sib.Page.ID))
+		bt.log.Errorf("mergeLeaf: %v", ErrSamePage)
+		return fmt.Errorf("mergeLeaf: %w", ErrSamePage)
 	}
 
 	var leftLeaf, rightLeaf, dest, orphan *LeafPage
@@ -101,7 +102,8 @@ func (bt *BTree) mergeLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx int
 
 func (bt *BTree) mergeInternal(sib, page, parent *InternalPage, sepIdx int, right bool) error {
 	if sib.Page.ID == page.Page.ID {
-		panic(fmt.Sprintf("mergeInternal: sibling and leaf are the same page (%d)", sib.Page.ID))
+		bt.log.Errorf("mergeInternal: %v", ErrSamePage)
+		return fmt.Errorf("mergeInternal: %w", ErrSamePage)
 	}
 
 	var leftNode, rightNode *InternalPage

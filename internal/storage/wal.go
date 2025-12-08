@@ -7,6 +7,8 @@ import (
 	"hash/crc32"
 	"io"
 	"os"
+
+	"go.store/internal/logger"
 )
 
 // Write-Ahead Log stores changes to pages before they are written to disk
@@ -16,10 +18,9 @@ type WAL struct {
 	file     *os.File
 	filePath string
 	pager    *Pager
+	log      *logger.Logger
 	size     int64
 }
-
-var ErrInvalidChecksum = errors.New("invalid checksum")
 
 // Replay / Truncate every 25 writes (100MB+)
 const WALCheckpointSize = 1024 * 1024 * 100
@@ -29,7 +30,7 @@ const WALCheckpointSize = 1024 * 1024 * 100
 // Page Data: []byte PageSize
 // Checksum: uint32
 
-func OpenWAL(path string, pager *Pager) (*WAL, error) {
+func OpenWAL(path string, pager *Pager, log *logger.Logger) (*WAL, error) {
 	f, err := os.OpenFile(path+".wal", os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, err
@@ -40,6 +41,7 @@ func OpenWAL(path string, pager *Pager) (*WAL, error) {
 		file:     f,
 		filePath: path + ".wal",
 		pager:    pager,
+		log:      log,
 		size:     info.Size(),
 	}, nil
 }
@@ -113,7 +115,8 @@ func (wal *WAL) Replay() error {
 		crc := binary.LittleEndian.Uint32(csum)
 
 		if crc != crc32.ChecksumIEEE(data) {
-			return fmt.Errorf("Page %d: %v", int(id), ErrInvalidChecksum)
+			wal.log.Errorf("Replay: checksum does not match on page %d", id)
+			return fmt.Errorf("Replay: %w (page=%d)", ErrChecksumMismatch, id)
 		}
 
 		page := NewPage()

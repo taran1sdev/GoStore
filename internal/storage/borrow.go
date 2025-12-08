@@ -47,7 +47,8 @@ func (bt *BTree) canBorrowInternal(sib, page *InternalPage, right bool) bool {
 
 func (bt *BTree) borrowLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx int, right bool) error {
 	if sib.Page.ID == leaf.Page.ID {
-		panic(fmt.Sprintf("borrowLeaf: sibling and leaf are the same page (%d)", sib.Page.ID))
+		bt.log.Errorf("borrowLeaf: %v", ErrSamePage)
+		return fmt.Errorf("borrowLeaf: %w", ErrSamePage)
 	}
 	var key, val []byte
 	var ptr uint16
@@ -79,13 +80,13 @@ func (bt *BTree) borrowLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx in
 	var newMin []byte
 	if right {
 		if sib.GetNumCells() == 0 {
-			return fmt.Errorf("borrowLeaf: right sibling empty")
+			return fmt.Errorf("borrowLeaf: right %w", ErrSiblingEmpty)
 		}
 		off := sib.GetCellPointer(0)
 		newMin = sib.ReadKey(off)
 	} else {
 		if leaf.GetNumCells() == 0 {
-			return fmt.Errorf("borrowLeaf: left sibling empty")
+			return fmt.Errorf("borrowLeaf: left %w", ErrSiblingEmpty)
 		}
 		off := leaf.GetCellPointer(0)
 		newMin = leaf.ReadKey(off)
@@ -111,7 +112,8 @@ func (bt *BTree) borrowLeaf(sib, leaf *LeafPage, parent *InternalPage, sepIdx in
 
 func (bt *BTree) borrowInternal(sib, page, parent *InternalPage, sepIdx int, right bool) error {
 	if sib.Page.ID == page.Page.ID {
-		panic(fmt.Sprintf("borrowInternal: sibling and page have the same ID (%d)", sib.Page.ID))
+		bt.log.Errorf("borrowInternal: %v", ErrSamePage)
+		return fmt.Errorf("borrowInternal: %w", ErrSamePage)
 	}
 
 	var borrowKey []byte
@@ -120,7 +122,7 @@ func (bt *BTree) borrowInternal(sib, page, parent *InternalPage, sepIdx int, rig
 
 	if right {
 		if sib.GetNumKeys() == 0 {
-			return fmt.Errorf("borrowInternal: right sibling empty")
+			return fmt.Errorf("borrowInternal: right %w", ErrSiblingEmpty)
 		}
 
 		ptr = sib.GetKeyPointer(0)
@@ -137,7 +139,7 @@ func (bt *BTree) borrowInternal(sib, page, parent *InternalPage, sepIdx int, rig
 	} else {
 		n := sib.GetNumKeys()
 		if n == 0 {
-			return fmt.Errorf("borrowInternal: left sibling empty")
+			return fmt.Errorf("borrowInternal: left %w", ErrSiblingEmpty)
 		}
 
 		ptr = sib.GetKeyPointer(n - 1)

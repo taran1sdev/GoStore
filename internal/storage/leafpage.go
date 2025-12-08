@@ -3,7 +3,6 @@ package storage
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 )
 
@@ -17,9 +16,6 @@ const (
 	endOffset      int = 5
 	dataStart      int = 7
 )
-
-var ErrKeyExists = errors.New("Key already exists")
-var ErrPageFull = errors.New("Not enough space to write record")
 
 func NewLeafPage(page *Page) *LeafPage {
 	pType := byte(PageTypeLeaf)

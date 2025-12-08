@@ -3,21 +3,30 @@ package engine
 import (
 	"fmt"
 
+	"go.store/internal/logger"
 	"go.store/internal/storage"
 )
 
 type Engine struct {
 	tree *storage.BTree
+	log  *logger.Logger
 }
 
-func NewEngine(tree *storage.BTree) *Engine {
+func NewEngine(tree *storage.BTree, log *logger.Logger) *Engine {
 	return &Engine{
 		tree: tree,
+		log:  log,
 	}
 }
 
-func (e *Engine) Set(key string, value []byte) error {
-	_, err := e.tree.Insert([]byte(key), value)
+func (e *Engine) Set(key string, value []byte) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			e.log.Errorf("fatal storage error during set: %v", r)
+			err = fmt.Errorf("fatal internal error: %v", r)
+		}
+	}()
+	_, err = e.tree.Insert([]byte(key), value)
 	return err
 }
 

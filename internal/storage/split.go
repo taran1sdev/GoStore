@@ -1,5 +1,7 @@
 package storage
 
+import "fmt"
+
 func (bt *BTree) splitLeaf(left *LeafPage) ([]byte, uint32) {
 	p := bt.pager.AllocatePage()
 	right := NewLeafPage(p)
@@ -61,7 +63,9 @@ func (bt *BTree) splitInternal(left *InternalPage) ([]byte, uint32) {
 	keys := make([][]byte, numKeys)
 	for i := 0; i < numKeys; i++ {
 		ptr := left.GetKeyPointer(i)
-		keys[i] = left.ReadKey(ptr)
+		k := left.ReadKey(ptr)
+
+		keys[i] = append([]byte(nil), k...)
 	}
 
 	children := make([]uint32, numKeys+1)
@@ -80,7 +84,8 @@ func (bt *BTree) splitInternal(left *InternalPage) ([]byte, uint32) {
 
 	for i := 0; i < mid; i++ {
 		if left.InsertSeparator(keys[i], children[i+1]) {
-			panic("left page split during splitInternal..")
+			bt.log.Errorf("splitInternal: unexpected left page split")
+			panic(fmt.Errorf("splitInternal: %w", ErrPageOverflow))
 		}
 	}
 
@@ -91,7 +96,8 @@ func (bt *BTree) splitInternal(left *InternalPage) ([]byte, uint32) {
 	right.SetRightChild(children[mid+1])
 	for i := mid + 1; i < numKeys; i++ {
 		if right.InsertSeparator(keys[i], children[i+1]) {
-			panic("right page split during splitInternal")
+			bt.log.Errorf("splitInternal: unexpected right page split")
+			panic(fmt.Errorf("splitInternal: %w", ErrPageOverflow))
 		}
 	}
 
@@ -110,7 +116,8 @@ func (bt *BTree) growRoot(sepKey []byte, leftID, rightID uint32) (bool, error) {
 	root.SetRightChild(leftID)
 
 	if root.InsertSeparator(sepKey, rightID) {
-		panic("split during growRoot")
+		bt.log.Errorf("growRoot: unexpected split during growRoot")
+		return false, fmt.Errorf("growRoot: %w", ErrPageOverflow)
 	}
 
 	if err := bt.writePage(root.Page); err != nil {

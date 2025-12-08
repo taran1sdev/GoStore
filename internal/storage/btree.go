@@ -2,10 +2,13 @@ package storage
 
 import (
 	"bytes"
+
+	"go.store/internal/logger"
 )
 
 type BTree struct {
 	pager     *Pager
+	log       *logger.Logger
 	root      uint32
 	meta      *MetaPage
 	metaDirty bool
@@ -17,7 +20,7 @@ type rec struct {
 	val []byte
 }
 
-func NewBTree(pager *Pager) (*BTree, error) {
+func NewBTree(pager *Pager, log *logger.Logger) (*BTree, error) {
 	m, err := pager.ReadPage(0)
 	if err != nil {
 		return nil, err
@@ -27,6 +30,7 @@ func NewBTree(pager *Pager) (*BTree, error) {
 	rootID := metaPage.GetRootID()
 	return &BTree{
 		pager:     pager,
+		log:       log,
 		root:      rootID,
 		meta:      metaPage,
 		metaDirty: false,

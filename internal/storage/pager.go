@@ -7,18 +7,21 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"go.store/internal/logger"
 )
 
 type Pager struct {
 	file      *os.File
 	filePath  string
 	wal       *WAL
+	log       *logger.Logger
 	pageSize  int
 	numPages  uint32
 	Replaying bool
 }
 
-func Open(path string) (*Pager, error) {
+func Open(path string, log *logger.Logger) (*Pager, error) {
 	f, err := os.OpenFile(path, os.O_RDWR, 0666)
 	if errors.Is(err, os.ErrNotExist) {
 		f, err = createDatabase(path)
@@ -42,17 +45,18 @@ func Open(path string) (*Pager, error) {
 	size := info.Size()
 	if size%PageSize != 0 {
 		f.Seek(0, io.SeekEnd)
-		return nil, fmt.Errorf("Corrupt DB file")
+		return nil, fmt.Errorf("Open %w", ErrCorruptFile)
 	}
 
 	pager := &Pager{
 		file:     f,
-		pageSize: PageSize,
 		filePath: path,
+		log:      log,
+		pageSize: PageSize,
 		numPages: uint32(size / PageSize),
 	}
 
-	wal, wErr := OpenWAL(path, pager)
+	wal, wErr := OpenWAL(path, pager, log)
 	if wErr != nil {
 		return nil, wErr
 	}
@@ -77,7 +81,7 @@ func checkSignature(f *os.File) error {
 	}
 
 	if !bytes.Equal(h, sig) {
-		return fmt.Errorf("Invalid file signature")
+		return ErrInvalidFileSig
 	}
 	return nil
 }
@@ -170,12 +174,9 @@ func (pager *Pager) AllocatePage() *Page {
 
 	head := meta.GetFreeHead()
 	if head != InvalidPage && head < pager.numPages {
-		fmt.Printf("Reallocating Free Page: %d\n", int(head))
-
 		freePage, err := pager.ReadPage(head)
 		if err != nil {
-			fmt.Printf("AllocatePage: Unable to read free page %d: %v, resetting freeHead\n",
-				head, err)
+			pager.log.Warnf("AllocatePage: %v (page:%d)", ErrCorruptFreeList, head)
 			meta.SetFreeHead(InvalidPage)
 			_ = pager.WritePage(meta.Page)
 			goto newPage
@@ -183,7 +184,7 @@ func (pager *Pager) AllocatePage() *Page {
 
 		nextPage := binary.LittleEndian.Uint32(freePage.Data[1:5])
 		if nextPage != InvalidPage && nextPage >= pager.numPages {
-			fmt.Printf("AllocatePage: invalid next free page %d, resetting list\n", nextPage)
+			pager.log.Warnf("AllocatePage: %v (next:%d)", ErrCorruptFreeList, nextPage)
 			nextPage = InvalidPage
 		}
 
@@ -214,5 +215,6 @@ func (pager *Pager) Close() error {
 	if err := pager.wal.Checkpoint(); err != nil {
 		return err
 	}
+	pager.wal.file.Close()
 	return os.Remove(pager.wal.filePath)
 }
