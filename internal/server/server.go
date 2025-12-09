@@ -2,27 +2,31 @@ package server
 
 import (
 	"bufio"
+	"fmt"
 	"net"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"go.store/internal/auth"
 )
 
 type Server struct {
-	addr string
-	auth *auth.Authenticator
+	addr     string
+	auth     *auth.Authenticator
+	ln       net.Listener
+	shutdown chan struct{}
 }
 
-const string prompt = "gostore> "
-
 func New(addr string) *Server {
-	store, err := auth.NewStore("../catalog/users.json")
+	store, err := auth.NewFileStore("/tmp/users.json")
 	if err != nil {
 		// later log error
 		panic(err)
 	}
 	a := auth.NewAuthenticator(store)
-	return &Server{addr: addr}
+	return &Server{addr: addr, auth: a, shutdown: make(chan struct{})}
 }
 
 func (s *Server) Listen() error {
@@ -30,11 +34,36 @@ func (s *Server) Listen() error {
 	if err != nil {
 		return err
 	}
+	s.ln = l
+
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+		<-sigCh
+		fmt.Println("\nServer shutting down...")
+
+		close(s.shutdown)
+
+		s.ln.Close()
+	}()
 
 	for {
 		conn, err := l.Accept()
+
+		select {
+		case <-s.shutdown:
+			return nil
+		default:
+		}
+
 		if err != nil {
-			continue
+			select {
+			case <-s.shutdown:
+				return nil
+			default:
+				continue
+			}
 		}
 		go s.handleConn(conn)
 	}
@@ -44,27 +73,42 @@ func (s *Server) handleConn(conn net.Conn) {
 	sess := &Session{}
 	reader := bufio.NewScanner(conn)
 
-	conn.Write(byte(prompt))
-	for reader.Scan() {
-		line := reader.Text()
+	conn.Write([]byte(Prompt))
 
+	for reader.Scan() {
+		select {
+		case <-s.shutdown:
+			conn.Write([]byte("\nServer shutting down...\n"))
+			conn.Close()
+			return
+		default:
+		}
+
+		line := reader.Text()
 		resp := s.exec(sess, line)
 
-		conn.Write([]byte(resp + "\n"))
+		conn.Write([]byte(resp.Msg + "\n"))
+
+		if resp.Close {
+			conn.Close()
+			return
+		}
+
+		conn.Write([]byte(Prompt))
 	}
 }
 
-func (s *Server) exec(sess *Session, line string) string {
-	parts := string.Fields(line)
+func (s *Server) exec(sess *Session, line string) Response {
+	parts := strings.Fields(line)
 	if len(parts) == 0 {
-		return prompt
+		return Response{Msg: Msg(""), Close: false}
 	}
 
 	switch strings.ToUpper(parts[0]) {
 	case "AUTH":
-		return s.auth(sess, parts)
+		return s.authCommand(sess, parts)
 	case "OPEN":
-		return s.openDB(sess, parts)
+		return s.openDBCommand(sess, parts)
 	case "SET":
 		return setCommand(sess, parts)
 	case "GET":
@@ -73,10 +117,10 @@ func (s *Server) exec(sess *Session, line string) string {
 		return delCommand(sess, parts)
 	case "CLOSE":
 		sess.CloseDB()
-		return "OK"
+		return Respond(OK)
 	case "EXIT":
 		return exitCommand(sess, parts)
 	default:
-		return prompt
+		return Respond(Prompt)
 	}
 }

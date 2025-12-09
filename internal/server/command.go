@@ -1,36 +1,71 @@
 package server
 
-import "go.store/internal/engine"
+import (
+	"fmt"
 
-var string ErrNoAuth = "ERR: Not authenticated"
-var string ErrNoDB = "ERR: No open DB"
+	"go.store/internal/engine"
+)
 
-func (s *Server) auth(sess *Session, parts []string) string {
+type Msg string
+
+type Response struct {
+	Msg   Msg
+	Close bool
+}
+
+const (
+	Prompt Msg = "gostore> "
+
+	OK Msg = "OK"
+
+	NoAuth     Msg = "Not authenticated"
+	NoPerm     Msg = "Permission denied"
+	NoDB       Msg = "No DB currently open"
+	OpenFailed Msg = "Failed to open Database"
+)
+
+func Usage(expected string) Response {
+	return Response{Msg: Msg("ERR Usage: " + expected), Close: false}
+}
+
+func Fatal(errMsg Msg) Response {
+	return Response{Msg: Msg("ERR: " + errMsg), Close: true}
+}
+
+func Err(errMsg Msg) Response {
+	return Response{Msg: Msg("ERR: " + errMsg), Close: false}
+}
+
+func Respond(msg Msg) Response {
+	return Response{Msg: msg, Close: false}
+}
+
+func (s *Server) authCommand(sess *Session, parts []string) Response {
 	if len(parts) != 3 {
-		return "ERR: Usage AUTH <username> <password>"
+		return Usage("AUTH <username> <password>")
 	}
 
 	u, err := s.auth.Authenticate(parts[1], parts[2])
 	if err != nil {
-		return "ERR: " + err.Error()
+		return Err(Msg(err.Error()))
 	}
 
 	sess.user = u
-	return "OK"
+	return Respond(OK)
 }
 
-func (s *Server) openDB(sess *Session, parts []string) string {
-	if !sess.IsAuthed() {
-		return ErrNoAuth
+func (s *Server) openDBCommand(sess *Session, parts []string) Response {
+	if !sess.IsAuth() {
+		return Err(NoAuth)
 	}
 
 	if len(parts) != 2 {
-		return "ERR: Usage OPEN <dbname>"
+		return Usage("OPEN <dbname>")
 	}
 
 	name := parts[1]
 	if !sess.user.CanOpenDB(name) {
-		return "ERR: Permission denied"
+		return Err(NoPerm)
 	}
 
 	sess.CloseDB()
@@ -40,58 +75,67 @@ func (s *Server) openDB(sess *Session, parts []string) string {
 
 	db, err := engine.Open(dbPath)
 	if err != nil {
-		return "ERR: Failed to open db: " + err.Error()
+		return Err(OpenFailed)
 	}
 
 	sess.database = db
 	sess.dbName = name
-	return "OK"
+	return Respond(OK)
 }
 
-func setCommand(sess *Session, parts []string) string {
+func exitCommand(sess *Session, parts []string) Response {
+	if sess.database != nil {
+		sess.CloseDB()
+	}
+
+	return Response{Msg: OK, Close: true}
+}
+
+func setCommand(sess *Session, parts []string) Response {
 	if sess.database == nil {
-		return ErrNoDB
+		return Err(NoDB)
 	}
 
 	if len(parts) != 3 {
-		return "ERR: Usage SET <key> <val>"
+		return Usage("SET <key> <val>")
 	}
 
 	if err := sess.database.Set(parts[1], []byte(parts[2])); err != nil {
-		return "ERR: " + err.Error()
+		return Err(Msg(err.Error()))
 	}
 
-	return "OK"
+	return Respond(OK)
 }
 
-func getCommand(sess *Session, parts []string) string {
+func getCommand(sess *Session, parts []string) Response {
 	if sess.database == nil {
-		return ErrNoDB
+		return Err(NoDB)
 	}
 
 	if len(parts) != 2 {
-		return "ERR: Usage GET <key>"
+		return Usage("GET <key>")
 	}
 
-	if err, val := sess.database.Get(parts[1]); err != nil {
-		return "ERR: " + err.Error()
+	val, err := sess.database.Get(parts[1])
+	if err != nil {
+		return Err(Msg(err.Error()))
 	}
 
-	return string(val)
+	return Respond(Msg(fmt.Sprintf("%s: %s", parts[1], val)))
 }
 
-func delCommand(sess *Session, parts []string) string {
+func delCommand(sess *Session, parts []string) Response {
 	if sess.database == nil {
-		return ErrNoDB
+		return Err(NoDB)
 	}
 
 	if len(parts) != 2 {
-		return "ERR: Usage DEL <key>"
+		return Usage("DEL <key>")
 	}
 
-	if err, val := sess.Database.Delete(parts[1]); err != nil {
-		return "ERR: " + err.Error()
+	if err := sess.database.Delete(parts[1]); err != nil {
+		return Err(Msg(err.Error()))
 	}
 
-	return "OK"
+	return Respond(OK)
 }

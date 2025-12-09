@@ -28,7 +28,7 @@ func NewFileStore(path string) (*FileStore, error) {
 
 // Load the user catalog from fs.path
 func (fs *FileStore) load() error {
-	fs.mu.Lock
+	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
 	f, err := os.Open(fs.path)
@@ -84,11 +84,11 @@ func (fs *FileStore) GetUser(username string) (*User, error) {
 	user := &User{
 		Username: u.Username,
 		Role:     u.Role,
-		Password: append([]byte(nil), u.Password...),
+		Password: u.Password,
 		AccessDB: append([]string(nil), u.AccessDB...),
 	}
 
-	return user
+	return user, nil
 }
 
 func (fs *FileStore) SaveUser(u *User) error {

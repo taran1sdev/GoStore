@@ -17,7 +17,7 @@ const (
 
 type User struct {
 	Username string   `json:"username"`
-	Password []byte   `json:"password"`
+	Password string   `json:"password"`
 	Role     Role     `json:"role"`
 	AccessDB []string `json:"access_db"`
 }
@@ -28,5 +28,5 @@ func HashPassword(plain string) ([]byte, error) {
 }
 
 func CheckPassword(hash []byte, plain string) bool {
-	return bcrypt.ComparePassword(hash, []byte(plain)) == nil
+	return bcrypt.CompareHashAndPassword(hash, []byte(plain)) == nil
 }

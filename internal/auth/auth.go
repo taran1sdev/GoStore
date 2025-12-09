@@ -6,18 +6,17 @@ type Authenticator struct {
 	store Store
 }
 
-func NewAuthenticator(store *Store) *Authenticator {
+func NewAuthenticator(store Store) *Authenticator {
 	return &Authenticator{store: store}
 }
 
 func (a *Authenticator) Authenticate(username, password string) (*User, error) {
 	u, err := a.store.GetUser(username)
-	// For now return "user not found" -  update both to Invalid Credentials after testing
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Invlid Credentials")
 	}
 
-	if !CheckPassword(u.Password, password) {
+	if !CheckPassword([]byte(u.Password), password) {
 		return nil, fmt.Errorf("Invalid Credentials")
 	}
 	return u, nil
