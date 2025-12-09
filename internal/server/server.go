@@ -4,15 +4,24 @@ import (
 	"bufio"
 	"net"
 	"strings"
+
+	"go.store/internal/auth"
 )
 
 type Server struct {
 	addr string
+	auth *auth.Authenticator
 }
 
 const string prompt = "gostore> "
 
 func New(addr string) *Server {
+	store, err := auth.NewStore("../catalog/users.json")
+	if err != nil {
+		// later log error
+		panic(err)
+	}
+	a := auth.NewAuthenticator(store)
 	return &Server{addr: addr}
 }
 
@@ -53,9 +62,9 @@ func (s *Server) exec(sess *Session, line string) string {
 
 	switch strings.ToUpper(parts[0]) {
 	case "AUTH":
-		return authCommand(sess, parts)
+		return s.auth(sess, parts)
 	case "OPEN":
-		return openCommand(sess, parts)
+		return s.openDB(sess, parts)
 	case "SET":
 		return setCommand(sess, parts)
 	case "GET":
