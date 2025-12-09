@@ -7,6 +7,8 @@ import (
 	"hash/crc32"
 	"io"
 	"os"
+	"sync"
+	"sync/atomic"
 
 	"go.store/internal/logger"
 )
@@ -20,10 +22,13 @@ type WAL struct {
 	pager    *Pager
 	log      *logger.Logger
 	size     int64
+
+	mu                sync.Mutex
+	checkpointRunning int32
 }
 
-// Replay / Truncate every 25 writes (100MB+)
-const WALCheckpointSize = 1024 * 1024 * 100
+// Replay every 100MB
+const WALCheckpointSize = 100 * 1024 * 1024
 
 // WAL file structure
 // Page ID: uint32
@@ -37,13 +42,15 @@ func OpenWAL(path string, pager *Pager, log *logger.Logger) (*WAL, error) {
 	}
 
 	info, _ := f.Stat()
-	return &WAL{
+	wal := &WAL{
 		file:     f,
 		filePath: path + ".wal",
 		pager:    pager,
 		log:      log,
 		size:     info.Size(),
-	}, nil
+	}
+
+	return wal, nil
 }
 
 func (wal *WAL) LogPage(page *Page) error {
@@ -56,6 +63,13 @@ func (wal *WAL) LogPage(page *Page) error {
 	csum := crc32.ChecksumIEEE(page.Data)
 	binary.LittleEndian.PutUint32(buf[4+PageSize:], csum)
 
+	wal.mu.Lock()
+	defer wal.mu.Unlock()
+
+	if _, err := wal.file.Seek(0, io.SeekEnd); err != nil {
+		return err
+	}
+
 	n, err := wal.file.Write(buf)
 	if err != nil {
 		return err
@@ -63,31 +77,56 @@ func (wal *WAL) LogPage(page *Page) error {
 
 	wal.size += int64(n)
 
-	//	if wal.size >= WALCheckpointSize {
-	//		return wal.Checkpoint()
-	//	}
+	if wal.size >= WALCheckpointSize {
+		wal.maybeRequestCheckpoint()
+	}
 	return nil
 }
 
+func (wal *WAL) maybeRequestCheckpoint() {
+	if atomic.LoadInt32(&wal.checkpointRunning) == 1 {
+		return
+	}
+	if wal.size >= WALCheckpointSize {
+		if !atomic.CompareAndSwapInt32(&wal.checkpointRunning, 0, 1) {
+			return
+		}
+		go func() {
+			defer atomic.StoreInt32(&wal.checkpointRunning, 0)
+			wal.Checkpoint()
+		}()
+	}
+}
+
 func (wal *WAL) Checkpoint() error {
-	if err := wal.Replay(); err != nil {
+	wal.pager.write.Lock()
+	defer wal.pager.write.Unlock()
+	if err := wal.pager.flushDirty(); err != nil {
+		fmt.Printf("Error: %v\n", err)
 		return err
 	}
-	return wal.pager.Sync()
+	return wal.Truncate()
 }
 
 // This function reads any entries in our WAL and applies them to the DB file
 func (wal *WAL) Replay() error {
-	wal.pager.Replaying = true
+	wal.pager.replaying = true
 	defer func() {
-		wal.pager.Replaying = false
+		wal.pager.replaying = false
 	}()
 
-	wal.file.Seek(0, io.SeekStart)
+	f, err := os.Open(wal.filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
 
 	header := make([]byte, 4)
+	data := make([]byte, PageSize)
+	csum := make([]byte, 4)
+
 	for {
-		_, err := io.ReadFull(wal.file, header)
+		_, err := io.ReadFull(f, header[:])
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			break
 		} else if err != nil {
@@ -95,18 +134,15 @@ func (wal *WAL) Replay() error {
 		}
 
 		id := binary.LittleEndian.Uint32(header)
-
-		data := make([]byte, PageSize)
-		_, err = io.ReadFull(wal.file, data)
-		if errors.Is(err, io.ErrUnexpectedEOF) {
+		_, err = io.ReadFull(f, data[:])
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			break
 		} else if err != nil {
 			return err
 		}
 
-		csum := make([]byte, 4)
-		_, err = io.ReadFull(wal.file, csum)
-		if errors.Is(err, io.ErrUnexpectedEOF) {
+		_, err = io.ReadFull(f, csum[:])
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			break
 		} else if err != nil {
 			return err
@@ -128,17 +164,20 @@ func (wal *WAL) Replay() error {
 		}
 	}
 
-	if err := wal.file.Sync(); err != nil {
-		return err
-	}
 	return wal.Truncate()
 }
 
 // Remove the log entries
 func (wal *WAL) Truncate() error {
+	wal.mu.Lock()
+	defer wal.mu.Unlock()
+
 	if err := wal.file.Truncate(0); err != nil {
 		return err
 	}
+	if _, err := wal.file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
 	wal.size = 0
-	return wal.file.Sync()
+	return nil
 }

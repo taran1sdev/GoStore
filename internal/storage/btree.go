@@ -38,6 +38,10 @@ func NewBTree(pager *Pager, log *logger.Logger) (*BTree, error) {
 }
 
 func (bt *BTree) Search(key []byte) ([]byte, bool, error) {
+
+	bt.pager.write.RLock()
+	defer bt.pager.write.RUnlock()
+
 	leaf, _, err := bt.descend(key)
 	if err != nil {
 		return nil, false, err

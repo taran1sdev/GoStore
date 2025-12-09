@@ -85,6 +85,10 @@ func (bt *BTree) propogateDelete(stack *ParentStack, childID uint32) error {
 }
 
 func (bt *BTree) Delete(key []byte) error {
+
+	bt.pager.write.Lock()
+	defer bt.pager.write.Unlock()
+
 	leaf, stack, err := bt.descend(key)
 	if err != nil {
 		return err

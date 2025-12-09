@@ -7,9 +7,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	"go.store/internal/logger"
 )
+
+type cachedPage struct {
+	page  *Page
+	dirty bool
+}
 
 type Pager struct {
 	file      *os.File
@@ -18,7 +24,12 @@ type Pager struct {
 	log       *logger.Logger
 	pageSize  int
 	numPages  uint32
-	Replaying bool
+	replaying bool
+
+	cache map[uint32]*cachedPage
+	mu    sync.Mutex
+
+	write sync.RWMutex
 }
 
 func Open(path string, log *logger.Logger) (*Pager, error) {
@@ -49,11 +60,13 @@ func Open(path string, log *logger.Logger) (*Pager, error) {
 	}
 
 	pager := &Pager{
-		file:     f,
-		filePath: path,
-		log:      log,
-		pageSize: PageSize,
-		numPages: uint32(size / PageSize),
+		file:      f,
+		filePath:  path,
+		log:       log,
+		pageSize:  PageSize,
+		numPages:  uint32(size / PageSize),
+		replaying: false,
+		cache:     make(map[uint32]*cachedPage),
 	}
 
 	wal, wErr := OpenWAL(path, pager, log)
@@ -121,6 +134,13 @@ func createDatabase(path string) (*os.File, error) {
 }
 
 func (pager *Pager) ReadPage(id uint32) (*Page, error) {
+	pager.mu.Lock()
+	if cp, ok := pager.cache[id]; ok {
+		pager.mu.Unlock()
+		return cp.page, nil
+	}
+	pager.mu.Unlock()
+
 	page := NewPage()
 	page.ID = id
 
@@ -140,31 +160,58 @@ func (pager *Pager) ReadPage(id uint32) (*Page, error) {
 	}
 
 	page.Type = PageType(page.Data[0])
+	pager.mu.Lock()
+	pager.cache[id] = &cachedPage{page: page, dirty: false}
+	pager.mu.Unlock()
 	return page, nil
 }
 
 func (pager *Pager) WritePage(page *Page) error {
-	if !pager.Replaying {
+	if !pager.replaying {
 		if err := pager.wal.LogPage(page); err != nil {
-			fmt.Printf("Error: %v", err)
+			pager.log.Errorf("WritePage: WAL logging failed for page %d: %v", page.ID, err)
+			return err
 		}
 	}
 
-	offset := int64(page.ID) * PageSize
-
-	if _, sErr := pager.file.Seek(offset, io.SeekStart); sErr != nil {
-		return fmt.Errorf("Failed to seek to page with id %d: %s", int64(page.ID), sErr)
+	pager.mu.Lock()
+	defer pager.mu.Unlock()
+	cp, ok := pager.cache[page.ID]
+	if !ok {
+		cp = &cachedPage{page: page, dirty: true}
+		pager.cache[page.ID] = cp
+	} else {
+		copy(cp.page.Data, page.Data)
+		cp.page.Type = page.Type
+		cp.dirty = true
 	}
+	return nil
+}
 
-	wrote, wErr := pager.file.Write(page.Data)
-	if wErr != nil {
-		return fmt.Errorf("Failed to write page: %s", wErr)
+func (pager *Pager) flushDirty() error {
+	pager.mu.Lock()
+	defer pager.mu.Unlock()
+
+	for id, cp := range pager.cache {
+		if !cp.dirty {
+			continue
+		}
+		offset := int64(id) * PageSize
+		if _, sErr := pager.file.Seek(offset, io.SeekStart); sErr != nil {
+			return fmt.Errorf("Failed to seek page %d: %s", id, sErr)
+		}
+
+		wrote, wErr := pager.file.Write(cp.page.Data)
+		if wErr != nil {
+			return fmt.Errorf("Failed to write page %d: %s", id, wErr)
+		}
+
+		if wrote != PageSize {
+			return fmt.Errorf("flushDirty: %w", ErrWriteSizeMismatch)
+		}
+
+		cp.dirty = false
 	}
-
-	if wrote != PageSize {
-		return fmt.Errorf("Data written does not match page size: Expected %d Actual: %d", PageSize, wrote)
-	}
-
 	return nil
 }
 
@@ -200,10 +247,14 @@ func (pager *Pager) AllocatePage() *Page {
 	}
 
 newPage:
+	pager.mu.Lock()
 	id := pager.numPages
 	pager.numPages++
+	pager.mu.Unlock()
+
 	p := NewPage()
 	p.ID = id
+
 	return p
 }
 
@@ -215,6 +266,13 @@ func (pager *Pager) Close() error {
 	if err := pager.wal.Checkpoint(); err != nil {
 		return err
 	}
+
+	if err := pager.file.Sync(); err != nil {
+		return err
+	}
+
 	pager.wal.file.Close()
-	return os.Remove(pager.wal.filePath)
+	os.Remove(pager.wal.filePath)
+
+	return pager.file.Close()
 }

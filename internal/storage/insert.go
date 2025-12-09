@@ -83,6 +83,10 @@ func (bt *BTree) propogateSplit(
 
 // Entry point into insertion logic
 func (bt *BTree) Insert(key, val []byte) (bool, error) {
+
+	bt.pager.write.Lock()
+	defer bt.pager.write.Unlock()
+
 	leaf, parentStack, err := bt.descend(key)
 	if err != nil {
 		return false, err

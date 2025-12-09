@@ -33,7 +33,10 @@ func (bt *BTree) FreePage(id uint32) {
 	bt.meta.SetFreeHead(id)
 	bt.metaDirty = true
 
-	bt.writePage(p)
+	err := bt.writePage(p)
+	if err != nil {
+		bt.log.Errorf("FreePage: %v", err)
+	}
 }
 
 func (bt *BTree) Close() error {
