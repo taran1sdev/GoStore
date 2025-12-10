@@ -10,27 +10,32 @@ import (
 	"syscall"
 
 	"go.store/internal/auth"
+	"go.store/internal/config"
 )
 
 type Server struct {
-	addr     string
+	cfg      *config.Config
 	auth     *auth.Authenticator
 	ln       net.Listener
 	shutdown chan struct{}
 }
 
-func New(addr string) *Server {
-	store, err := auth.NewFileStore("/tmp/users.json")
+func New(cfg *config.Config) (*Server, error) {
+	store, err := auth.NewFileStore(cfg.UserFile)
 	if err != nil {
-		// later log error
-		panic(err)
+		return nil, err
 	}
 	a := auth.NewAuthenticator(store)
-	return &Server{addr: addr, auth: a, shutdown: make(chan struct{})}
+
+	return &Server{
+		cfg:      cfg,
+		auth:     a,
+		shutdown: make(chan struct{}),
+	}, nil
 }
 
 func (s *Server) Listen() error {
-	l, err := net.Listen("tcp", s.addr)
+	l, err := net.Listen("tcp", s.cfg.Addr)
 	if err != nil {
 		return err
 	}
@@ -108,7 +113,7 @@ func (s *Server) exec(sess *Session, line string) Response {
 	case "AUTH":
 		return s.authCommand(sess, parts)
 	case "OPEN":
-		return openDBCommand(sess, parts)
+		return s.openDBCommand(sess, parts)
 	case "SET":
 		return setCommand(sess, parts)
 	case "GET":
@@ -120,18 +125,6 @@ func (s *Server) exec(sess *Session, line string) Response {
 		return Respond(OK)
 	case "EXIT":
 		return exitCommand(sess, parts)
-		// Superuser commands
-	case "CREATEUSER":
-		return s.createUserCommand(sess, parts)
-	case "DELUSER":
-		return s.delUserCommand(sess, parts)
-	case "GRANTDB":
-		return s.grantDBCommand(sess, parts)
-	case "REVOKEDB":
-		return s.revokeDBCommand(sess, parts)
-	case "DROPDB":
-		return s.dropDBCommand(sess, parts)
-
 	default:
 		return Respond(Prompt)
 	}

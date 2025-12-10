@@ -2,7 +2,6 @@ package auth
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"sync"
 )
@@ -71,13 +70,13 @@ func (fs *FileStore) persist() error {
 	return json.NewEncoder(f).Encode(list)
 }
 
-func (fs *FileStore) GetUser(username string) (*User, error) {
+func (fs *FileStore) GetUser(username string) *User {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
 
 	u, ok := fs.users[username]
 	if !ok {
-		return nil, fmt.Errorf("Error: user not found")
+		return nil
 	}
 
 	// Create a deep copy so we aren't holding a reference
@@ -88,7 +87,7 @@ func (fs *FileStore) GetUser(username string) (*User, error) {
 		AccessDB: append([]string(nil), u.AccessDB...),
 	}
 
-	return user, nil
+	return user
 }
 
 func (fs *FileStore) SaveUser(u *User) error {

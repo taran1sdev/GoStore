@@ -2,24 +2,33 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
 
-var delCommand = &cobra.Command{
-	Use:  "delete",
-	Args: cobra.ExactArgs(1),
+var deleteCmd = &cobra.Command{
+	Use:   "delete <dbname>",
+	Args:  cobra.ExactArgs(1),
+	Short: "Delete an existing database",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		err := db.Delete(args[0])
-		if err != nil {
+		dbname := args[0]
+
+		dbDir := filepath.Join(cfg.DataDir, dbname)
+
+		if err := os.RemoveAll(dbDir); err != nil {
 			return err
 		}
 
-		fmt.Printf("%s has been deleted!\n", args[0])
+		logFile := filepath.Join(cfg.LogDir, dbname+".log")
+		_ = os.Remove(logFile)
+
+		fmt.Printf("Database %s deleted\n", dbname)
 		return nil
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(delCommand)
+	rootCmd.AddCommand(deleteCmd)
 }

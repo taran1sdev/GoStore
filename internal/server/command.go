@@ -54,7 +54,7 @@ func (s *Server) authCommand(sess *Session, parts []string) Response {
 	return Respond(OK)
 }
 
-func openDBCommand(sess *Session, parts []string) Response {
+func (s *Server) openDBCommand(sess *Session, parts []string) Response {
 	if !sess.IsAuth() {
 		return Err(NoAuth)
 	}
@@ -63,23 +63,21 @@ func openDBCommand(sess *Session, parts []string) Response {
 		return Usage("OPEN <dbname>")
 	}
 
-	name := parts[1]
-	if !sess.user.CanOpenDB(name) {
+	dbname := parts[1]
+	if !sess.user.CanOpenDB(dbname) {
 		return Err(NoPerm)
 	}
 
 	sess.CloseDB()
 
 	// Later we will have a dedicated data dir
-	dbPath := "/tmp/" + name + ".db"
-
-	db, err := engine.Open(dbPath)
+	db, err := engine.Open(dbname, s.cfg)
 	if err != nil {
 		return Err(OpenFailed)
 	}
 
 	sess.database = db
-	sess.dbName = name
+	sess.dbName = dbname
 	return Respond(OK)
 }
 

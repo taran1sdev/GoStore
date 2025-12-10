@@ -5,30 +5,22 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"go.store/internal/engine"
+	"go.store/internal/config"
 )
 
-var dbPath string
-var db *engine.Database
+var (
+	homeFlag   string
+	configFlag string
+	cfg        *config.Config
+)
 
 var rootCmd = &cobra.Command{
-	Args:         cobra.ExactArgs(1),
-	SilenceUsage: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if db != nil {
-			return fmt.Errorf("Command not found")
-		}
-
-		dbPath = args[0]
-
+	Use:   "gostore",
+	Short: "GoStore CLI",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		var err error
-		db, err = engine.Open(dbPath)
-		if err != nil {
-			return fmt.Errorf("Failed to open Database: %s", err)
-		}
-
-		startREPL(cmd)
-		return nil
+		cfg, err = config.LoadConfig(homeFlag, configFlag)
+		return err
 	},
 }
 
@@ -40,11 +32,8 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.SetHelpCommand(&cobra.Command{Hidden: true})
-	rootCmd.PersistentFlags().BoolP("help", "h", false, "help message")
-	rootCmd.PersistentFlags().MarkHidden("help")
-	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
-		fmt.Println("Usage:")
-		fmt.Println("	gostore <path to db>")
-	})
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
+
+	rootCmd.PersistentFlags().StringVar(&homeFlag, "home", "", "GoStore home directory")
+	rootCmd.PersistentFlags().StringVar(&configFlag, "config", "", "Path to config.yaml")
 }

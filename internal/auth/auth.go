@@ -11,8 +11,8 @@ func NewAuthenticator(store Store) *Authenticator {
 }
 
 func (a *Authenticator) Authenticate(username, password string) (*User, error) {
-	u, err := a.store.GetUser(username)
-	if err != nil {
+	u := a.store.GetUser(username)
+	if u == nil {
 		return nil, fmt.Errorf("Invlid Credentials")
 	}
 

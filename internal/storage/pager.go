@@ -35,7 +35,7 @@ type Pager struct {
 func Open(path string, log *logger.Logger) (*Pager, error) {
 	f, err := os.OpenFile(path, os.O_RDWR, 0666)
 	if errors.Is(err, os.ErrNotExist) {
-		f, err = createDatabase(path)
+		return nil, fmt.Errorf("Database does not exist")
 	}
 
 	if err != nil {
@@ -99,7 +99,7 @@ func checkSignature(f *os.File) error {
 	return nil
 }
 
-func createDatabase(path string) (*os.File, error) {
+func CreateDatabase(path string) (*os.File, error) {
 	f, cErr := os.Create(path)
 	if cErr != nil {
 		return nil, fmt.Errorf("Unable to create file %s: %s", path, cErr)
