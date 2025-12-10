@@ -98,6 +98,10 @@ func setCommand(sess *Session, parts []string) Response {
 		return Usage("SET <key> <val>")
 	}
 
+	if sess.user.IsGuest() {
+		return Err(NoPerm)
+	}
+
 	if err := sess.database.Set(parts[1], []byte(parts[2])); err != nil {
 		return Err(Msg(err.Error()))
 	}

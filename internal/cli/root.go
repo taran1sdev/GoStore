@@ -26,13 +26,14 @@ var rootCmd = &cobra.Command{
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println("Error: ", err)
-		os.Exit(1)
+		fmt.Fprintln(os.Stderr, err)
 	}
 }
 
 func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+	rootCmd.SilenceUsage = true
+	rootCmd.SilenceErrors = true
 
 	rootCmd.PersistentFlags().StringVar(&homeFlag, "home", "", "GoStore home directory")
 	rootCmd.PersistentFlags().StringVar(&configFlag, "config", "", "Path to config.yaml")

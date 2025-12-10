@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -51,10 +52,29 @@ func LoadConfig(homeOverride, configOverride string) (*Config, error) {
 		if err := yaml.NewDecoder(f).Decode(cfg); err != nil {
 			return nil, err
 		}
+	} else if errors.Is(err, os.ErrNotExist) {
+		if err := WriteConfig(cfgPath, cfg); err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, err
 	}
 
 	_ = os.MkdirAll(cfg.DataDir, 0o755)
 	_ = os.MkdirAll(cfg.LogDir, 0o755)
 
 	return cfg, nil
+}
+
+func WriteConfig(path string, cfg *Config) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"go.store/internal/auth"
@@ -21,7 +22,7 @@ var userCreateCmd = &cobra.Command{
 			return err
 		}
 
-		if u := fs.GetUser(username); u == nil {
+		if u := fs.GetUser(username); u != nil {
 			return fmt.Errorf("User already exists")
 		}
 
@@ -30,10 +31,21 @@ var userCreateCmd = &cobra.Command{
 			return err
 		}
 
+		role := auth.Role(strings.ToLower(roleStr))
+
+		switch role {
+		case auth.RoleUser:
+			break
+		case auth.RoleGuest:
+			break
+		default:
+			return fmt.Errorf("Invalid Role")
+		}
+
 		u := &auth.User{
 			Username: username,
 			Password: string(hash),
-			Role:     auth.Role(roleStr),
+			Role:     role,
 			AccessDB: []string{},
 		}
 
