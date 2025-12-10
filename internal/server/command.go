@@ -54,7 +54,7 @@ func (s *Server) authCommand(sess *Session, parts []string) Response {
 	return Respond(OK)
 }
 
-func (s *Server) openDBCommand(sess *Session, parts []string) Response {
+func openDBCommand(sess *Session, parts []string) Response {
 	if !sess.IsAuth() {
 		return Err(NoAuth)
 	}

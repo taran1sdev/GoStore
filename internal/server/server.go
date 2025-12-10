@@ -108,7 +108,7 @@ func (s *Server) exec(sess *Session, line string) Response {
 	case "AUTH":
 		return s.authCommand(sess, parts)
 	case "OPEN":
-		return s.openDBCommand(sess, parts)
+		return openDBCommand(sess, parts)
 	case "SET":
 		return setCommand(sess, parts)
 	case "GET":
@@ -120,6 +120,18 @@ func (s *Server) exec(sess *Session, line string) Response {
 		return Respond(OK)
 	case "EXIT":
 		return exitCommand(sess, parts)
+		// Superuser commands
+	case "CREATEUSER":
+		return s.createUserCommand(sess, parts)
+	case "DELUSER":
+		return s.delUserCommand(sess, parts)
+	case "GRANTDB":
+		return s.grantDBCommand(sess, parts)
+	case "REVOKEDB":
+		return s.revokeDBCommand(sess, parts)
+	case "DROPDB":
+		return s.dropDBCommand(sess, parts)
+
 	default:
 		return Respond(Prompt)
 	}

@@ -30,3 +30,24 @@ func HashPassword(plain string) ([]byte, error) {
 func CheckPassword(hash []byte, plain string) bool {
 	return bcrypt.CompareHashAndPassword(hash, []byte(plain)) == nil
 }
+
+func (u *User) IsSuperuser() bool {
+	return u.Role == RoleSuperuser
+}
+
+func (u *User) IsGuest() bool {
+	return u.Role == RoleGuest
+}
+
+func (u *User) CanOpenDB(db string) bool {
+	if u.IsSuperuser() {
+		return true
+	}
+
+	for _, name := range u.AccessDB {
+		if name == db {
+			return true
+		}
+	}
+	return false
+}

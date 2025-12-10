@@ -99,6 +99,14 @@ func (fs *FileStore) SaveUser(u *User) error {
 	return fs.persist()
 }
 
+func (fs *FileStore) DeleteUser(username string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	delete(fs.users, username)
+	return fs.persist()
+}
+
 func (fs *FileStore) ListUsers() ([]*User, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()

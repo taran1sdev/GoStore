@@ -22,23 +22,7 @@ func (a *Authenticator) Authenticate(username, password string) (*User, error) {
 	return u, nil
 }
 
-func (u *User) IsSuperuser() bool {
-	return u.Role == RoleSuperuser
-}
-
-func (u *User) IsGuest() bool {
-	return u.Role == RoleGuest
-}
-
-func (u *User) CanOpenDB(db string) bool {
-	if u.IsSuperuser() {
-		return true
-	}
-
-	for _, name := range u.AccessDB {
-		if name == db {
-			return true
-		}
-	}
-	return false
+// This should only be called after verifying SU permissions
+func (a *Authenticator) Store() Store {
+	return a.store
 }
