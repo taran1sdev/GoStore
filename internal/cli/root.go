@@ -37,4 +37,5 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&homeFlag, "home", "", "GoStore home directory")
 	rootCmd.PersistentFlags().StringVar(&configFlag, "config", "", "Path to config.yaml")
+
 }

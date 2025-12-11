@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"os"
@@ -35,10 +36,33 @@ func New(cfg *config.Config) (*Server, error) {
 }
 
 func (s *Server) Listen() error {
-	l, err := net.Listen("tcp", s.cfg.Addr)
-	if err != nil {
-		return err
+	var l net.Listener
+	var err error
+
+	if s.cfg.EnableTLS {
+		cert, err := tls.LoadX509KeyPair(s.cfg.TLSCert, s.cfg.TLSKey)
+		if err != nil {
+			return fmt.Errorf("failed to load TLS certificate: %w", err)
+		}
+
+		tlsCfg := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+
+		l, err = tls.Listen("tcp", s.cfg.Addr, tlsCfg)
+		if err != nil {
+			return fmt.Errorf("failed to start TLS listener: %w", err)
+		}
+
+		fmt.Println("TLS enabled")
+	} else {
+		l, err = net.Listen("tcp", s.cfg.Addr)
+		if err != nil {
+			return fmt.Errorf("failed to start TCP listener: %w", err)
+		}
 	}
+
 	s.ln = l
 
 	go func() {

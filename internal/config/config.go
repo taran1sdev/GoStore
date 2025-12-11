@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -14,6 +15,11 @@ type Config struct {
 	DataDir  string `yaml:"data_dir"`
 	LogDir   string `yaml:"log_dir"`
 	UserFile string `yaml:"user_file"`
+
+	EnableTLS bool   `yaml:"enable_tls"`
+	CertDir   string `yaml:"cert_dir"`
+	TLSCert   string `yaml:"tls_cert"`
+	TLSKey    string `yaml:"tls_key"`
 }
 
 func LoadConfig(homeOverride, configOverride string) (*Config, error) {
@@ -40,6 +46,11 @@ func LoadConfig(homeOverride, configOverride string) (*Config, error) {
 		DataDir:  filepath.Join(home, "data"),
 		LogDir:   filepath.Join(home, "log"),
 		UserFile: filepath.Join(home, "users.json"),
+
+		EnableTLS: false,
+		CertDir:   filepath.Join(home, "cert"),
+		TLSCert:   filepath.Join(home, "cert", "server.crt"),
+		TLSKey:    filepath.Join(home, "cert", "server.key"),
 	}
 
 	cfgPath := configOverride
@@ -62,7 +73,16 @@ func LoadConfig(homeOverride, configOverride string) (*Config, error) {
 
 	_ = os.MkdirAll(cfg.DataDir, 0o755)
 	_ = os.MkdirAll(cfg.LogDir, 0o755)
+	_ = os.MkdirAll(cfg.CertDir, 0o755)
 
+	if cfg.EnableTLS {
+		if _, err := os.Stat(cfg.TLSCert); err != nil {
+			return nil, fmt.Errorf("Could not find TLS certificate: %w")
+		}
+		if _, err := os.Stat(cfg.TLSKey); err != nil {
+			return nil, fmt.Errorf("Could not find TLS key: %w")
+		}
+	}
 	return cfg, nil
 }
 

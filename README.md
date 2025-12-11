@@ -10,6 +10,7 @@ I chose to build GoStore to learn how databases like Redis and Sqlite work inter
 - Pager for fixed-size page IO + free-list management
 - Write-Ahead Log for crash recovery
 - Authenticated TCP server with a simple text protocol
+- Optional TLS encryption for secure communication
 - Admin CLI for creating / deleting databases and managing users
 
 ### Install
@@ -22,14 +23,14 @@ go build ./cmd/gostore
 ### Directory Layout
 Application data is stored in `~/.local/share/gostore` by default
 ```
-gostore/
+├── cert
+│   ├── server.crt
+│   └── server.key
 ├── config.yaml
 ├── data
-│   └── example
-│       ├── example.db
-│       └── example.db.wal
+│   └── test
+│       └── test.db
 ├── log
-│   └── example.log
 └── users.json
 ```
 
@@ -69,13 +70,25 @@ Users must be granted access to databases through the CLI
 By default the server will start on `localhost:57083` - you can change this in `config.yaml`
 
 To start the server with default settings run
-```
+```bash
 gostore start
 ```
 
 To connect via nc
 ```bash
 nc localhost 57083
+```
+
+To start the server using TLS encryption first enable TLS in `config.yaml` then generate a TLS key/certificate 
+```bash
+openssl req -x509 -newkey rsa:4096 -keyout server.key -out server.crt -days 365 -nodes -subj "/CN=dev"
+```
+
+By default the application will look in `gostore/certs` for the the key/certificate files, this can be changed in `config.yaml`
+
+Use `openssl` to connect to the server
+```bash
+openssl s_client -connect 127.0.0.1:57083 -servername localhost
 ```
 
 Clients communicate with simple text commands:
@@ -89,7 +102,6 @@ QUIT
 ```
 
 ### TODO
-- TLS encryption 
 - Go client library for embedding GoStore directly in Go projects
 - Binary protocol for faster clients
 - Compression for large database files
